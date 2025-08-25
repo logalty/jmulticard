@@ -79,7 +79,8 @@ public final class DnieFactory {
 			                   final CryptoHelper cryptoHelper,
 			                   final CallbackHandler ch) throws InvalidCardException,
 											                    BurnedDnieCardException,
-											                    ApduConnectionException {
+											                    ApduConnectionException,
+																					IcaoException {
 		return getDnie(conn, pwc, cryptoHelper, ch, true);
 	}
 
@@ -104,7 +105,8 @@ public final class DnieFactory {
 			                   final CallbackHandler ch,
 			              	   final boolean loadCertsAndKeys) throws InvalidCardException,
 											                          BurnedDnieCardException,
-											                          ApduConnectionException {
+											                          ApduConnectionException,
+																								IcaoException {
 		return getDnie(conn, pwc, cryptoHelper, ch, null, true);
 	}
 
@@ -131,7 +133,8 @@ public final class DnieFactory {
 												 final ChipAuthentication ca,
 			              	   final boolean loadCertsAndKeys) throws InvalidCardException,
 											                          BurnedDnieCardException,
-											                          ApduConnectionException {
+											                          ApduConnectionException,
+																								IcaoException {
 		if (conn == null) {
 			throw new IllegalArgumentException(
 				"La conexion no puede ser nula" //$NON-NLS-1$
@@ -164,9 +167,7 @@ public final class DnieFactory {
 					return new DnieNfc(conn, pwc, cryptoHelper, ch, ca, loadCertsAndKeys);
 				}
 				catch (final IcaoException e) {
-					throw new ApduConnectionException(
-						"No se ha podido abrir el canal PACE", e //$NON-NLS-1$
-					);
+					throw e;
 				}
 			}
 			if (ATR.equals(actualAtr)) {

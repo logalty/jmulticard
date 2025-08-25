@@ -77,7 +77,9 @@ import es.gob.jmulticard.card.dnie.Dnie3;
 import es.gob.jmulticard.card.dnie.Dnie3Dg01Mrz;
 import es.gob.jmulticard.card.dnie.DnieFactory;
 import es.gob.jmulticard.card.dnie.DniePrivateKeyReference;
+import es.gob.jmulticard.card.icao.IcaoException;
 import es.gob.jmulticard.connection.ApduConnection;
+import es.gob.jmulticard.connection.ApduConnectionException;
 
 /** Implementaci&oacute;n del SPI <code>KeyStore</code> para DNIe.
  * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s. */
@@ -325,23 +327,34 @@ public final class DnieKeyStoreImpl extends KeyStoreSpi {
     			if (((KeyStore.CallbackHandlerProtection) pp).getCallbackHandler() == null) {
     				throw new IllegalArgumentException("El CallbackHandler no puede ser nulo"); //$NON-NLS-1$
     			}
-    			cryptoCard = DnieFactory.getDnie(
-					DnieProvider.getDefaultApduConnection(),
-					null,
-					CRYPTO_HELPER,					((KeyStore.CallbackHandlerProtection) pp).getCallbackHandler()
-				);
+					try {
+						cryptoCard = DnieFactory.getDnie(
+						DnieProvider.getDefaultApduConnection(),
+						null,
+						CRYPTO_HELPER,					((KeyStore.CallbackHandlerProtection) pp).getCallbackHandler());
+					} catch (final IcaoException e) {
+											throw new ApduConnectionException(
+						"No se ha podido abrir el canal PACE", e //$NON-NLS-1$
+						);
+					}
     		}
     		else if (pp instanceof KeyStore.PasswordProtection) {
     			final PasswordCallback pwc = new CardPasswordCallback(
 					(PasswordProtection) pp,
 					JMultiCardProviderMessages.getString("DnieKeyStoreImpl.0") //$NON-NLS-1$
 				);
-    			cryptoCard = DnieFactory.getDnie(
-					DnieProvider.getDefaultApduConnection(),
-					pwc,
-					CRYPTO_HELPER,
-					null
-				);
+					try {
+						cryptoCard = DnieFactory.getDnie(
+							DnieProvider.getDefaultApduConnection(),
+							pwc,
+							CRYPTO_HELPER,
+							null
+						);
+					} catch (final IcaoException e) {
+						throw new ApduConnectionException(
+							"No se ha podido abrir el canal PACE", e //$NON-NLS-1$
+						);
+					}
     		}
     		else {
     			LOGGER.warning(
@@ -351,12 +364,18 @@ public final class DnieKeyStoreImpl extends KeyStoreSpi {
     		}
     	}
     	else {
-	    	cryptoCard = DnieFactory.getDnie(
-				DnieProvider.getDefaultApduConnection(),
-				null,
-				CRYPTO_HELPER,
-				null
-			);
+				try {
+					cryptoCard = DnieFactory.getDnie(
+					DnieProvider.getDefaultApduConnection(),
+					null,
+					CRYPTO_HELPER,
+					null
+					);
+				} catch (final IcaoException e) {
+											throw new ApduConnectionException(
+						"No se ha podido abrir el canal PACE", e //$NON-NLS-1$
+						);
+				}
     	}
 
     	aliases = Arrays.asList(cryptoCard.getAliases());
@@ -376,11 +395,17 @@ public final class DnieKeyStoreImpl extends KeyStoreSpi {
     	}
 
         // Aqui se realiza el acceso e inicializacion del DNIe
-    	cryptoCard = DnieFactory.getDnie(
-    		conn,
-    		password != null ? new CachePasswordCallback(password) : null,
-			new BcCryptoHelper(),    		null
-		);
+			try {
+				cryptoCard = DnieFactory.getDnie(
+					conn,
+					password != null ? new CachePasswordCallback(password) : null,
+				new BcCryptoHelper(),    		null
+				);
+			} catch (final IcaoException e) {
+									throw new ApduConnectionException(
+				"No se ha podido abrir el canal PACE", e //$NON-NLS-1$
+				);
+			}
 
     	aliases = Arrays.asList(cryptoCard.getAliases());
     }
