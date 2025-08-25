@@ -134,7 +134,7 @@ public final class Com extends DecoderObject {
 	/** Obtiene la lista de r&oacute;tulos.
 	 * @return Lista de todos los grupos de datos presentes. */
 	public String[] getPresentDgs() {
-		return (String[]) presentDgs.toArray();
+		return (String[]) presentDgs.toArray(new String[0]);
 	}
 
 }

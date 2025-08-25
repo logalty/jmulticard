@@ -15,7 +15,9 @@ import es.gob.jmulticard.asn1.icao.SubjectSignaturePhoto;
 import es.gob.jmulticard.card.Location;
 
 /** MRTD ICAO LDS1.
- * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s. */
+ * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s.
+ * @author Logalty.
+ * */
 public interface MrtdLds1 {
 
 	/** Localizaci&oacute;n del fichero EF&#46;DG1. */
@@ -80,6 +82,60 @@ public interface MrtdLds1 {
 
     /** Localizaci&oacute;n del fichero EF&#46;CardSecurity. */
     Location FILE_CARD_SECURITY_LOCATION = new Location("011D"); //$NON-NLS-1$
+
+    /** TAG del Identificador de fichero DG1. */
+    byte[] DG01_FILE_ID_TAG = { (byte)0x01, (byte)0x01 };
+
+    /** TAG del Identificador de fichero DG2. */
+    byte[] DG02_FILE_ID_TAG = { (byte)0x01, (byte)0x02 };
+
+    /** TAG del Identificador de fichero DG3. */
+    byte[] DG03_FILE_ID_TAG = { (byte)0x01, (byte)0x03 };
+
+    /** TAG del Identificador de fichero DG4. */
+    byte[] DG04_FILE_ID_TAG = { (byte)0x01, (byte)0x04 };
+
+    /** TAG del Identificador de fichero DG5. */
+    byte[] DG05_FILE_ID_TAG = { (byte)0x01, (byte)0x05 };
+
+    /** TAG del Identificador de fichero DG6. */
+    byte[] DG06_FILE_ID_TAG = { (byte)0x01, (byte)0x06 };
+
+    /** TAG del Identificador de fichero DG7. */
+    byte[] DG07_FILE_ID_TAG = { (byte)0x01, (byte)0x07 };
+
+    /** TAG del Identificador de fichero DG8. */
+    byte[] DG08_FILE_ID_TAG = { (byte)0x01, (byte)0x08 };
+
+    /** TAG del Identificador de fichero DG9. */
+    byte[] DG09_FILE_ID_TAG = { (byte)0x01, (byte)0x09 };
+
+    /** TAG del Identificador de fichero DG10. */
+    byte[] DG10_FILE_ID_TAG = { (byte)0x01, (byte)0x0A };
+
+    /** TAG del Identificador de fichero DG11. */
+    byte[] DG11_FILE_ID_TAG = { (byte)0x01, (byte)0x0B };
+
+    /** TAG del Identificador de fichero DG12. */
+    byte[] DG12_FILE_ID_TAG = { (byte)0x01, (byte)0x0C };
+
+    /** TAG del Identificador de fichero DG13. */
+    byte[] DG13_FILE_ID_TAG = { (byte)0x01, (byte)0x0D };
+
+    /** TAG del Identificador de fichero DG14. */
+    byte[] DG14_FILE_ID_TAG = { (byte)0x01, (byte)0x0E };
+
+    /** TAG del Identificador de fichero DG15. */
+    byte[] DG15_FILE_ID_TAG = { (byte)0x01, (byte)0x0F };
+
+    /** TAG del Identificador de fichero DG16. */
+    byte[] DG16_FILE_ID_TAG = { (byte)0x01, (byte)0x10 };
+
+    /** TAG del Identificador de fichero SOD. */
+    byte[] SOD_FILE_ID_TAG = { (byte)0x01, (byte)0x1D };
+
+    /** TAG del Identificador de fichero COM. */
+    byte[] COM_FILE_ID_TAG = { (byte)0x01, (byte)0x1E };
 
     /** Obtiene el DG1 (MRZ).
      * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
@@ -244,4 +300,147 @@ public interface MrtdLds1 {
                                                     Asn1Exception,
                                                     SignatureException,
                                                     CertificateException;
+
+    /** Obtiene el DG1 (MRZ) a partir del FILE ID.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG1 (MRZ).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    Mrz getDg1ByFileId() throws IOException;
+
+    /** Obtiene el DG2 (fotograf&iacute;a del rostro del titular) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG2 (fotograf&iacute;a del rostro del titular).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    SubjectFacePhoto getDg2ByFileId() throws IOException;
+
+    /** Obtiene el DG3 (elementos de identificaci&oacute;n adicionales - Dedos) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de administraci&oacute;n est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG3 (elementos de identificaci&oacute;n adicionales - Dedos).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg3ByFileId() throws IOException;
+
+    /** Obtiene el DG4 (elementos de identificaci&oacute;n adicionales - Iris) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de administraci&oacute;n est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG4 (elementos de identificaci&oacute;n adicionales - Iris).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg4ByFileId() throws IOException;
+
+    /** Obtiene el DG5 (retrato exhibido) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG5 (retrato exhibido).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg5ByFileId() throws IOException;
+
+    /** Obtiene el DG6 (reservado para uso futuro) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG6 (reservado para uso futuro).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg6ByFileId() throws IOException;
+
+    /** Obtiene el DG7 (imagen de la firma o marca habitual exhibida) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG7 (imagen de la firma o marca habitual exhibida).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    SubjectSignaturePhoto getDg7ByFileId() throws IOException;
+
+    /** Obtiene el DG8 (elemento datos) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG8 (elemento datos).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg8ByFileId() throws IOException;
+
+    /** Obtiene el DG9 (elemento estructura) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG9 (elemento estructura).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg9ByFileId() throws IOException;
+
+    /** Obtiene el DG10 (elemento sustancia) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG10 (elemento sustancia).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg10ByFileId() throws IOException;
+
+    /** Obtiene el DG11 (detalles personales adicionales) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG11 (detalles personales adicionales).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg11ByFileId() throws IOException;
+
+    /** Obtiene el DG12 (detalles del documento adicionales) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG12 (detalles del documento adicionales).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg12ByFileId() throws IOException;
+
+    /** Obtiene el DG13 (detalles opcionales) a partir del FILE ID.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG13 (detalles opcionales).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    OptionalDetails getDg13ByFileId() throws IOException;
+
+    /** Obtiene el DG14 (opciones de seguridad) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG14 (opciones de seguridad).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg14ByFileId() throws IOException;
+
+    /** Obtiene el DG15 (informaci&oacute;n de clave p&uacute;blica de autenticaci&oacute;n activa) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG15 (informaci&oacute;n de clave p&uacute;blica de autenticaci&oacute;n activa).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg15ByFileId() throws IOException;
+
+    /** Obtiene el DG16 (personas que han de notificarse) a partir del FILE ID.
+     * Devuelve el objeto binario sin tratar.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return DG16 (personas que han de notificarse).
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    byte[] getDg16ByFileId() throws IOException;
+
+    /** Obtiene el SOD a partir del FILE ID.
+     * El SOD contiene las huellas digitales de los DG.
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return SOD.
+     * @throws IOException Si hay problemas obteniendo el objeto. */
+    Sod getSodByFileId() throws IOException;
+
+    /** Obtiene el COM a partir del FILE ID.
+     * El COM contiene los "datos comunes" (<i>Common Data</i>).
+     * Puede necesitar que el canal de usuario est&eacute; previamente establecido.
+     * @author Logalty.
+     * @return COM.
+     * @throws IOException Si hay problemas leyendo el fichero. */
+    Com getComByFileId() throws IOException;
+
 }

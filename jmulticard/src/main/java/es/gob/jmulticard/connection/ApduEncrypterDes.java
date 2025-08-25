@@ -81,7 +81,7 @@ public class ApduEncrypterDes extends AbstractApduEncrypter {
 			                     final byte[] key,
 			                     final byte[] ssc,
 			                     final CryptoHelper cryptoHelper) throws IOException {
-    	return cryptoHelper.desedeEncrypt(data, key);
+    	return cryptoHelper.desedeEncrypt(data, null, key);
     }
 
     /** Aplica el algoritmo para la generaci&oacute;n de la MAC del mensaje.
@@ -121,6 +121,7 @@ public class ApduEncrypterDes extends AbstractApduEncrypter {
 					tmpData,
 					HexUtils.subArray(dataPadded, i, 8)
 				),
+                null,
 				keyTdesBytes
 			),
 			0,
@@ -212,6 +213,7 @@ public class ApduEncrypterDes extends AbstractApduEncrypter {
         final byte[] decryptedData = removePadding7816(
     		cryptoHelper.desedeDecrypt(
 				HexUtils.subArray(dataTlv.getValue(), 1, dataTlv.getValue().length - 1),
+                null,
 				keyCipher
 			)
 		);

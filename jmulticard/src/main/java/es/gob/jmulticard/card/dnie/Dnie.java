@@ -249,13 +249,15 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
         callbackHandler = ch;
 
         try {
-			selectMasterFile();
-		}
+            callAID();
+        }
         catch (final Iso7816FourCardException e) {
-			LOGGER.warning(
-				"No se ha podido seleccionar el directorio raiz antes de leer las estructuras: " + e //$NON-NLS-1$
-			);
-		}
+            LOGGER.warning(
+                    "No se ha podido llamar al AID: " + e //$NON-NLS-1$
+            );
+        } catch (final Exception e) {
+            LOGGER.warning("No se ha podido llamar al AID" + e); //$NON-NLS-1$
+        }
 
         passwordCallback = pwc;
 
@@ -263,22 +265,11 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
             throw new IllegalArgumentException("El CryptoHelper no puede ser nulo"); //$NON-NLS-1$
         }
         cryptoHelper = cryptoHlpr;
-
-        if (loadCertsAndKeys) {
-
-	        // Cargamos la localizacion de los certificados y el certificado
-	        // de CA intermedia de los certificados de firma, autenticacion y,
-        	// si existe, cifrado
-	        loadCertificatesPaths();
-
-	        // Cargamos la informacion publica con la referencia a las claves
-	        loadKeyReferences();
-        }
     }
 
     /** Obtiene la clase con funcionalidades de base de criptograf&iacute;a.
      * @return Clase con funcionalidades de base de criptograf&iacute;a. */
-    protected CryptoHelper getCryptoHelper() {
+    public CryptoHelper getCryptoHelper() {
     	return cryptoHelper;
     }
 
@@ -1268,4 +1259,21 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 			loadCertificates();
         }
 	}
+
+	public void callAID() throws Iso7816FourCardException, ApduConnectionException {
+        byte[] selectAidCommand = {
+                (byte) 0x00, (byte) 0xA4, (byte) 0x04, (byte) 0x00, (byte) 0x07, // Header
+                (byte) 0xA0, (byte) 0x00, (byte) 0x00, (byte) 0x02, (byte) 0x47, (byte) 0x10, (byte) 0x01 // AID
+        };
+        LOGGER.info("Sending SELECT AID: " + HexUtils.hexify(selectAidCommand, false));
+        CommandApdu selectCmd = new CommandApdu(selectAidCommand);
+        ResponseApdu selectResp = rawConnection.transmit(selectCmd);
+        if (!selectResp.isOk()) {
+            throw new Iso7816FourCardException(
+                    selectResp.getStatusWord(),
+                    selectCmd,
+                    "Error seleccionando la aplicación de pasaporte"
+            );
+        }
+    }
 }

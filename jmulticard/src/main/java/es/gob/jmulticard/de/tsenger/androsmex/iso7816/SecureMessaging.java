@@ -46,6 +46,14 @@ public final class SecureMessaging {
 	private transient final byte[] ssc;
 	private transient final CryptoHelper cryptoHelper;
 
+	private final boolean isBAC;
+
+	/** Tipo de mensajer&iacute;a segura. */
+	protected SecureMessagingType type;
+
+	/** Tama&ntilde;o de bloque de cifrado AES = 16 3DES = 8. */
+	private static int BLOCK_SIZE;
+
 	/** Constructor.
 	 * @param ksenc Clave de sesi&oacute;n para encriptar.
 	 * @param ksmac Clave de sesi&oacute;n para el <i>checksum</i>.
@@ -54,11 +62,24 @@ public final class SecureMessaging {
 	public SecureMessaging(final byte[] ksenc,
 						   final byte[] ksmac,
 						   final byte[] initialSSC,
-						   final CryptoHelper ch) {
-		cryptoHelper = ch;
+						   final CryptoHelper ch,
+						   final SecureMessagingType type) {
+		this(ksenc, ksmac, initialSSC, ch, false, type);
+	}
+
+		public SecureMessaging(final byte[] ksenc,
+						   final byte[] ksmac,
+						   final byte[] initialSSC,
+						   final CryptoHelper ch,
+						   final boolean isBAC,
+						   final SecureMessagingType type) {
+										cryptoHelper = ch;
 		kenc = ksenc.clone();
 		kmac = ksmac.clone();
 		ssc = initialSSC.clone();
+		this.isBAC = isBAC;
+		this.type = type;
+		BLOCK_SIZE = isBAC ? 8 : 16;
 	}
 
 	/** Transforma un Comando APDU en claro a Comando APDU protegido.
@@ -88,10 +109,13 @@ public final class SecureMessaging {
 			lc += do87.getEncoded().length;
 		}
 
-		// Construye el DO97 (payload de respuesta esperado)
-		if (getAPDUStructure(capdu) == 2 || getAPDUStructure(capdu) == 4) {
-			do97 = buildDO97(capdu.getLe().intValue());
-			lc += do97.getEncoded().length;
+		int originalLe = capdu.getLe() != null ? capdu.getLe().intValue() : -1;
+		if (originalLe > 0 && originalLe <= 256) {
+			// Construye el DO97 (payload de respuesta esperado)
+			if (getAPDUStructure(capdu) == 2 || getAPDUStructure(capdu) == 4) {
+				do97 = buildDO97(capdu.getLe().intValue());
+				lc += do97.getEncoded().length;
+			}
 		}
 
 		// Construye el DO8E (checksum (MAC))
@@ -219,20 +243,30 @@ public final class SecureMessaging {
 			final byte[] do87Data = do87.getData();
 			final byte[] data;
 			try {
-				data = cryptoHelper.aesDecrypt(
-					do87Data,
-					// Vector de inicializacion a partir del cifrado del SSC
-					cryptoHelper.aesEncrypt(
-						ssc,  // Datos
-						null,      // Sin vector de inicializacion
-						kenc, // Clave
-						BlockMode.ECB,
-						Padding.NOPADDING
-					),
-					kenc,
-					BlockMode.CBC,
-					Padding.ISO7816_4PADDING
-				);
+								if (isBAC) {
+					final byte[] zeroIV = new byte[8];
+
+					data = cryptoHelper.desedeDecrypt(
+							applyPadding(do87Data),
+							zeroIV,
+							kenc
+					);
+				} else {
+					data = cryptoHelper.aesDecrypt(
+						do87Data,
+						// Vector de inicializacion a partir del cifrado del SSC
+						cryptoHelper.aesEncrypt(
+							ssc,  // Datos
+							null,      // Sin vector de inicializacion
+							kenc, // Clave
+							BlockMode.ECB,
+							Padding.NOPADDING
+						),
+						kenc,
+						BlockMode.CBC,
+						Padding.ISO7816_4PADDING
+					);
+				}
 			}
 			catch (final IOException e) {
 				throw new SecureMessagingException(e);
@@ -263,20 +297,32 @@ public final class SecureMessaging {
 	private DO87 buildDO87(final byte[] data) throws SecureMessagingException  {
 		final byte[] encData;
 		try {
-			encData = cryptoHelper.aesEncrypt(
-				data,
-				// Vector de inicializacion a partir del cifrado del SSC
-				cryptoHelper.aesEncrypt(
-					ssc,  // Datos
-					null,      // Sin vector de inicializacion
-					kenc, // Clave
-					BlockMode.ECB,
-					Padding.NOPADDING
-				),
-				kenc,
-				BlockMode.CBC,
-				Padding.ISO7816_4PADDING
-			);
+			if (isBAC) {
+				final byte[] pureCiphertext;
+				byte[] dataToEncrypt = applyPadding(data);
+				final byte[] zeroIV = new byte[8];
+				pureCiphertext = cryptoHelper.desedeEncrypt(
+						dataToEncrypt,
+						zeroIV,
+						kenc
+				);
+				return new DO87(pureCiphertext);
+			} else {
+				encData = cryptoHelper.aesEncrypt(
+					data,
+					// Vector de inicializacion a partir del cifrado del SSC
+					cryptoHelper.aesEncrypt(
+						ssc,  // Datos
+						null,      // Sin vector de inicializacion
+						kenc, // Clave
+						BlockMode.ECB,
+						Padding.NOPADDING
+					),
+					kenc,
+					BlockMode.CBC,
+					Padding.ISO7816_4PADDING
+				);
+			}
 		}
 		catch (final IOException e) {
 			throw new SecureMessagingException(e);
@@ -386,11 +432,19 @@ public final class SecureMessaging {
 		final byte[] n = new byte[ssCounter.length + data.length];
 		System.arraycopy(ssCounter, 0, n, 0, ssCounter.length);
 		System.arraycopy(data, 0, n, ssCounter.length, data.length);
+		if (isBAC) {
+			return getBacMac(n, keyBytes);
+		}
 		return cryptoHelper.doAesCmac(addPadding(n), keyBytes);
 	}
 
-	/** Tama&ntilde;o de bloque de cifrado AES. */
-	public static final int BLOCK_SIZE = 16;
+	private byte[] getBacMac(final byte[] dataN, final byte[] keyMac3DES) throws InvalidKeyException {
+		try {
+			return cryptoHelper.calculate3DESRetailMAC(dataN, keyMac3DES);
+		} catch (final IOException e) {
+			throw new InvalidKeyException(e);
+		}
+	}
 
 	/** A&ntilde;ade un relleno ISO9797-1 (m&eacute;todo 2) / ISO7816d4-Padding
 	 * a los datos proporcionados.
@@ -409,5 +463,20 @@ public final class SecureMessaging {
             len++;
         }
         return in;
+	}
+
+	private static byte[] applyPadding(final byte[] data) {
+		int paddingLength = BLOCK_SIZE - (data.length % BLOCK_SIZE);
+		byte[] paddedData = new byte[data.length + paddingLength];
+		System.arraycopy(data, 0, paddedData, 0, data.length);
+		paddedData[data.length] = (byte) 0x80; // Primer byte del padding
+		for (int i = data.length + 1; i < paddedData.length; i++) {
+			paddedData[i] = (byte) 0x00; // Resto del padding
+		}
+		return paddedData;
+	}
+
+	public SecureMessagingType getType(){
+		return type;
 	}
 }

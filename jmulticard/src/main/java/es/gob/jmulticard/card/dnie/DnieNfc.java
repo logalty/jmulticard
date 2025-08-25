@@ -22,6 +22,7 @@ import es.gob.jmulticard.card.icao.WirelessInitializerCan;
 import es.gob.jmulticard.card.icao.WirelessInitializerMrz;
 import es.gob.jmulticard.connection.ApduConnection;
 import es.gob.jmulticard.connection.ApduConnectionException;
+import es.gob.jmulticard.connection.ca.ChipAuthentication;
 import es.gob.jmulticard.connection.cwa14890.Cwa14890Connection;
 import es.gob.jmulticard.connection.pace.PaceConnection;
 import es.gob.jmulticard.connection.pace.PaceException;
@@ -61,7 +62,7 @@ public class DnieNfc extends Dnie3 {
 		);
 	}
 
-	/** Construte un DNIe 3 accedido mediante PACE por NFC.
+		/** Construte un DNIe 3 accedido mediante PACE por NFC.
 	 * @param conn Conexi&oacute;n NFC.
 	 * @param pwc <code>PasswordCallback</code> para obtener el PIN.
 	 * @param cryptoHlpr Clase de utiildades criptogr&aacute;ficas.
@@ -76,11 +77,37 @@ public class DnieNfc extends Dnie3 {
 			final CallbackHandler ch,
 			final boolean loadCertsAndKeys) throws IcaoException,
 	                                               ApduConnectionException {
+			this(
+				getPaceConnection(conn, ch, cryptoHlpr),
+				pwc,
+				cryptoHlpr,
+				ch,
+				null,
+				true
+			);
+	}
+	/** Construte un DNIe 3 accedido mediante PACE por NFC.
+	 * @param conn Conexi&oacute;n NFC.
+	 * @param pwc <code>PasswordCallback</code> para obtener el PIN.
+	 * @param cryptoHlpr Clase de utiildades criptogr&aacute;ficas.
+	 * @param ch <code>CallbackHandler</code> para obtener el PIN y el CAN o la MRZ.
+	 * @param loadCertsAndKeys <code>true</code> si se ha de hacer una carga de claves
+	 *                         y certificados en el momento de la construcci&oacute;n.
+	 * @throws IcaoException Si no se puede establecer en canal PACE.
+	 * @throws ApduConnectionException Si hay problemas en el env&iacute;o de las APDU. */
+	protected DnieNfc(final ApduConnection conn,
+			final PasswordCallback pwc,
+			final CryptoHelper cryptoHlpr,
+			final CallbackHandler ch,
+			final ChipAuthentication ca,
+			final boolean loadCertsAndKeys) throws IcaoException,
+	                                               ApduConnectionException {
 		super(
 			getPaceConnection(conn, ch, cryptoHlpr),
 			pwc,
 			cryptoHlpr,
 			ch,
+			ca,
 			loadCertsAndKeys
 		);
 	}

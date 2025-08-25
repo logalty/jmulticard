@@ -42,11 +42,13 @@ package es.gob.jmulticard.card.iso7816four;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Logger;
 
 import javax.security.auth.callback.PasswordCallback;
 
+import es.gob.jmulticard.HexUtils;
 import es.gob.jmulticard.apdu.CommandApdu;
 import es.gob.jmulticard.apdu.ResponseApdu;
 import es.gob.jmulticard.apdu.StatusWord;
@@ -60,6 +62,7 @@ import es.gob.jmulticard.asn1.Tlv;
 import es.gob.jmulticard.card.AbstractSmartCard;
 import es.gob.jmulticard.card.Location;
 import es.gob.jmulticard.card.PinException;
+import es.gob.jmulticard.card.icao.TlvHeaderInfo;
 import es.gob.jmulticard.connection.ApduConnection;
 import es.gob.jmulticard.connection.ApduConnectionException;
 import es.gob.jmulticard.connection.cwa14890.SecureChannelException;
@@ -162,14 +165,36 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      * @return APDU de respuesta.
      * @throws ApduConnectionException Si hay problemas en el env&iacute;o de la APDU.
      * @throws IOException Si hay problemas en el <i>buffer</i> de lectura. */
-    public byte[] readBinaryComplete(final int len) throws IOException {
+    public byte[] readBinaryComplete(int len) throws IOException {
 
         int off = 0;
+        if (len == 0) {
+            try {
+                TlvHeaderInfo headerInfo = parseFileHeader((byte) 5);
+                len = headerInfo.valueLength + headerInfo.headerLength;
+            } catch (final RequiredSecurityStateNotSatisfiedException e) {
+                throw new IOException(
+            		"Condicion de seguridad no satisfecha al leer el fichero", e //$NON-NLS-1$
+            	);
+            } catch (final OffsetOutsideEfException e) {
+            	throw new IOException(
+            		"Se ha intentado una lectura fuera de los limites del fichero", e //$NON-NLS-1$
+            	);
+            } catch (final ApduConnectionException e) {
+            	throw new IOException(
+            		"Error de conexion al leer el fichero", e //$NON-NLS-1$
+            	);
+            }
+        }
         ResponseApdu readedResponse;
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
+        int totalBytesToRead = len;
         // Leemos en iteraciones de MAX_READ_CHUNK bytes
         while (off < len) {
+            // Calcular cuántos bytes quedan por leer en esta iteración
+            int bytesToReadThisChunk = Math.min(MAX_READ_CHUNK, totalBytesToRead - off);
+
             final byte msbOffset = (byte)(off >> 8);
             final byte lsbOffset = (byte)(off & 0xFF);
             final int left = len - off;
@@ -201,8 +226,8 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
         		);
             }
 
-            out.write(readedResponse.getData());
-
+            int currentChunkLength = readedResponse.getData().length;
+            out.write(readedResponse.getData(), 0, Math.min(currentChunkLength, bytesToReadThisChunk));
             off += MAX_READ_CHUNK;
 
             // Si hemos llegado al final no seguimos leyendo
@@ -210,7 +235,6 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
             	break;
             }
         }
-
         return out.toByteArray();
     }
 
@@ -289,7 +313,18 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      * @throws ApduConnectionException Si hay problemas en el env&iacute;o de la APDU
      * @throws Iso7816FourCardException Si falla la selecci&oacute;n de fichero */
     public int selectFileByLocation(final Location location) throws ApduConnectionException,
-                                                                    Iso7816FourCardException {
+    Iso7816FourCardException {
+        return selectFileByLocation(location, null);
+    }
+
+    /** Selecciona un fichero (DF o EF).
+     * @param location La ruta absoluta donde se encuentra el fichero a leer
+     * @param fileSize tamaño del fichero si ha sido calculado previamente
+     * @return Tama&ntilde;o del fichero seleccionado
+     * @throws ApduConnectionException Si hay problemas en el env&iacute;o de la APDU
+     * @throws Iso7816FourCardException Si falla la selecci&oacute;n de fichero */
+    public int selectFileByLocation(final Location location, final Integer fileSize) throws ApduConnectionException,
+            Iso7816FourCardException {
         int fileLength = 0;
         Location loc = location;
         selectMasterFile();
@@ -297,6 +332,9 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
             final byte[] id = loc.getFile();
             fileLength = selectFileById(id);
             loc = loc.getChild();
+        }
+        if (fileSize != null) {
+            return fileSize;
         }
         return fileLength;
     }
@@ -308,8 +346,20 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      * @throws Iso7816FourCardException Si falla la selecci&oacute;n de fichero.
      * @throws IOException Si hay problemas en el <i>buffer</i> de lectura. */
     public byte[] selectFileByLocationAndRead(final Location location) throws IOException,
-                                                                              Iso7816FourCardException {
-        final int fileLenght = selectFileByLocation(location);
+    Iso7816FourCardException {
+        return selectFileByLocationAndRead(location, null);
+    }
+
+    /** Selecciona un fichero y lo lee por completo.
+     * @param location Ruta absoluta del fichero a leer.
+     * @param fileSize tamaño del fichero si ha sido calculado previamente
+     * @return Contenido del fichero apuntado por la ruta <code>location</code>.
+     * @throws ApduConnectionException Si hay problemas en el env&iacute;o de la APDU.
+     * @throws Iso7816FourCardException Si falla la selecci&oacute;n de fichero.
+     * @throws IOException Si hay problemas en el <i>buffer</i> de lectura. */
+    public byte[] selectFileByLocationAndRead(final Location location, final Integer fileSize) throws IOException,
+            Iso7816FourCardException {
+        final int fileLenght = selectFileByLocation(location, fileSize);
         return readBinaryComplete(fileLenght);
     }
 
@@ -371,4 +421,56 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
     public abstract void verifyPin(PasswordCallback pinPc) throws ApduConnectionException,
                                                                   PinException;
 
+                                                                      /**
+     * Lee y parsea la cabecera TLV del fichero actualmente seleccionado.
+     *
+     * @param initialReadLength Cuántos bytes leer inicialmente para la cabecera (ej. 5).
+     * @return TlvHeaderInfo con la información parseada, o null si hay error.
+     */
+    private TlvHeaderInfo parseFileHeader(byte initialReadLength) throws ApduConnectionException, RequiredSecurityStateNotSatisfiedException, OffsetOutsideEfException {
+        ResponseApdu resp = readBinary((byte)0x00, (byte)0x00, initialReadLength);
+        if (!resp.isOk()) {
+            return null;
+        }
+
+        byte[] headerBytes = resp.getData();
+        if (headerBytes == null || headerBytes.length < 2) { // Mínimo Tag + primer byte de Longitud
+            return null;
+        }
+
+        int tag = headerBytes[0] & 0xFF;
+        byte firstLengthByte = headerBytes[1];
+        int valueLength;
+        int headerTotalLength; // Longitud de T+L
+
+        if ((firstLengthByte & 0x80) == 0) { // Forma corta
+            valueLength = firstLengthByte & 0x7F;
+            headerTotalLength = 2; // Tag (1) + L (1)
+        } else { // Forma larga
+            int numSubsequentLengthBytes = firstLengthByte & 0x7F;
+
+            if (numSubsequentLengthBytes == 0) {
+                return null; // Longitud indefinida
+            }
+            if (numSubsequentLengthBytes > 4) { // Prácticamente, >3 es raro para eMRTDs. 4 es el max ASN.1 para len.
+                return null;
+            }
+
+            headerTotalLength = 1 // (/*Tag*/)
+                + 1 // (/*0x8X byte*/)
+                + numSubsequentLengthBytes;
+
+            if (headerBytes.length < headerTotalLength) {
+                // Aquí podrías intentar leer más bytes si initialReadLength fue muy pequeña
+                // o simplemente fallar. Por ahora, fallamos.
+                return null;
+            }
+
+            valueLength = 0;
+            for (int i = 0; i < numSubsequentLengthBytes; i++) {
+                valueLength = (valueLength << 8) + (headerBytes[1 + 1 + i] & 0xFF); // Índice: 1 (Tag) + 1 (0x8X) + i
+            }
+        }
+        return new TlvHeaderInfo(tag, valueLength, headerTotalLength, Arrays.copyOf(headerBytes, Math.min(headerBytes.length, headerTotalLength)));
+    }
 }

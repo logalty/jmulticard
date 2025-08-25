@@ -15,6 +15,7 @@ import es.gob.jmulticard.connection.cwa14890.Cwa14890OneV2Connection;
 import es.gob.jmulticard.connection.cwa14890.InvalidCryptographicChecksumException;
 import es.gob.jmulticard.de.tsenger.androsmex.iso7816.SecureMessaging;
 import es.gob.jmulticard.de.tsenger.androsmex.iso7816.SecureMessagingException;
+import es.gob.jmulticard.de.tsenger.androsmex.iso7816.SecureMessagingType;
 
 /** Conexi&oacute;n PACE para establecimiento de canal seguro por NFC.
  * @author Sergio Mart&iacute;nez Rico
@@ -27,7 +28,7 @@ public final class PaceConnection extends Cwa14890OneV2Connection {
 	private static final byte MSB_INCORRECT_LE = (byte) 0x6C;
 
 	/** Octeto de valor m&aacute;s significativo que indica un <i>Le</i> incorrecto en la petici&oacute;n. */
-	private transient final SecureMessaging sm;
+	private transient SecureMessaging sm;
 
 	/** Conexi&oacute;n PACE para establecimiento de canal seguro por NFC.
 	 * @param connection Conexi&oacute;n base sobre la que crear el nuevo canal.
@@ -131,4 +132,16 @@ public final class PaceConnection extends Cwa14890OneV2Connection {
 		}
 		return decipherApdu;
 	}
+
+		public void restartSecureMessaging(SecureMessaging sm) {
+		if (sm == null) {
+			throw new IllegalArgumentException("El objeto SecureMessaging no puede ser nulo"); //$NON-NLS-1$
+		}
+		this.sm = sm;
+	}
+
+	public SecureMessagingType getType() {
+		return sm.getType();
+	}
+
 }

@@ -34,6 +34,7 @@ import es.gob.jmulticard.connection.ApduConnection;
 import es.gob.jmulticard.connection.ApduConnectionException;
 import es.gob.jmulticard.connection.pace.PaceException;
 import es.gob.jmulticard.de.tsenger.androsmex.iso7816.SecureMessaging;
+import es.gob.jmulticard.de.tsenger.androsmex.iso7816.SecureMessagingType;
 
 /** Utilidades para el establecimiento de un canal <a href="https://www.bsi.bund.de/EN/Publications/TechnicalGuidelines/TR03110/BSITR03110.html">PACE</a>
  * (Password Authenticated Connection Establishment).
@@ -403,7 +404,8 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 			kenc,
 			kmac,
 			new byte[BLOCK_SIZE], // El tamano de bloque AES es el SSC inicial
-			cryptoHelper
+			cryptoHelper,
+			SecureMessagingType.PACE_SECURE_CHANNEL
 		);
 	}
 

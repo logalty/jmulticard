@@ -214,7 +214,7 @@ public final class MrzInfo {
     /** Calcula el d&iacute;gito de control 7-3-1 de un fragmento la MRZ.
      * @param str Fragmento de la MRZ.
      * @return D&iacute;gito de control (de '0' a '9'). */
-    static char checkDigit(final String str) {
+    public static char checkDigit(final String str) {
         return checkDigit(str, false);
     }
 

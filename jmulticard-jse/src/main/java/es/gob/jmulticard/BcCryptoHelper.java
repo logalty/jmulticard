@@ -74,8 +74,17 @@ import org.spongycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.spongycastle.operator.OperatorCreationException;
 import org.spongycastle.operator.bc.BcDigestCalculatorProvider;
 import org.spongycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
+import org.spongycastle.util.Arrays;
 import org.spongycastle.util.Selector;
 import org.spongycastle.util.Store;
+
+import es.gob.jmulticard.HexUtils;
+import es.gob.jmulticard.BcCryptoHelper.CustomRsaPublicKey;
+import es.gob.jmulticard.CryptoHelper.BlockMode;
+import es.gob.jmulticard.CryptoHelper.DigestAlgorithm;
+import es.gob.jmulticard.CryptoHelper.EcCurve;
+import es.gob.jmulticard.CryptoHelper.PaceChannelHelper;
+import es.gob.jmulticard.CryptoHelper.Padding;
 
 /** Funcionalidades criptogr&aacute;ficas de utilidad implementadas mediante BouncyCastle.
  * Contiene c&oacute;digo basado en el trabajo del <i>JMRTD team</i>, bajo licencia
@@ -137,43 +146,52 @@ public final class BcCryptoHelper extends CryptoHelper {
 
     /** Realiza una operaci&oacute;n 3DES.
      * @param data Datos a cifrar o descifrar.
+		 * @param iv
      * @param key Clave 3DES.
      * @param forEncryption Si se debe cifrar o descifrar.
      * @return Datos cifrados o descifrados.
      * @throws IOException Si ocurre cualquier error durante el proceso. */
     private static byte[] doDesede(final byte[] data,
+		final byte[] iv,
     		                       final byte[] key,
     		                       final boolean forEncryption) throws IOException {
-		final BufferedBlockCipher cipher = new BufferedBlockCipher(
-			new CBCBlockCipher(new DESedeEngine())
-		);
-		cipher.init(
-			forEncryption,
-			new KeyParameter(
-				prepareDesedeKey(key)
-			)
-		);
-		final byte[] result = new byte[cipher.getOutputSize(data.length)];
-		final int tam = cipher.processBytes(data, 0, data.length, result, 0);
-		try {
-			cipher.doFinal(result, tam);
-		}
-		catch (final DataLengthException   |
+			final BufferedBlockCipher cipher = new BufferedBlockCipher(
+				new CBCBlockCipher(new DESedeEngine())
+			);
+				byte[] effectiveKeyForEngine = prepareDesedeKey(key); // Prepara la clave a 24 bytes
+			KeyParameter keyParam = new KeyParameter(effectiveKeyForEngine);
+			if (iv != null) {
+				cipher.init(
+					forEncryption,
+					new ParametersWithIV(keyParam,  iv)
+				);
+			} else {
+				// Si IV es null, BouncyCastle CBCBlockCipher por defecto usa un IV de ceros, lo cual es correcto para Retail MAC.
+				cipher.init(
+					forEncryption, keyParam);
+			}
+
+			final byte[] result = new byte[cipher.getOutputSize(data.length)];
+			final int tam = cipher.processBytes(data, 0, data.length, result, 0);
+			try {
+				cipher.doFinal(result, tam);
+			}
+			catch (final DataLengthException   |
 				     IllegalStateException |
 				     InvalidCipherTextException e) {
-			throw new IOException("Error en el cifrado o descifrado 3DES", e); //$NON-NLS-1$
-		}
-		return result;
+				throw new IOException("Error en el cifrado o descifrado 3DES", e); //$NON-NLS-1$
+			}
+			return result;
     }
 
     @Override
-    public byte[] desedeEncrypt(final byte[] data, final byte[] rawKey) throws IOException {
-        return doDesede(data, rawKey, true);
+    public byte[] desedeEncrypt(final byte[] data, final byte[] iv, final byte[] rawKey) throws IOException {
+        return doDesede(data, iv, rawKey, true);
     }
 
     @Override
-    public byte[] desedeDecrypt(final byte[] data, final byte[] rawKey) throws IOException {
-        return doDesede(data, rawKey, false);
+    public byte[] desedeDecrypt(final byte[] data, final byte[] iv, final byte[] rawKey) throws IOException {
+        return doDesede(data, iv, rawKey, false);
     }
 
     private static byte[] prepareDesedeKey(final byte[] key) {
@@ -829,5 +847,44 @@ public final class BcCryptoHelper extends CryptoHelper {
 		public BigInteger getPublicExponent() {
 			return exponent;
 		}
+	}
+
+	// En CryptoHelper o donde tengas calculate3DESRetailMAC
+	public byte[] calculate3DESRetailMAC(byte[] paddedN, byte[] keyMac16Byte) throws IOException {
+		// 1. Aplicar padding ISO9797-1 método 2 (añadir 0x80 y luego 0s hasta completar bloque)
+		int blockSize = 8;
+		int padding = blockSize - (paddedN.length % blockSize);
+		if (padding == 0) {
+			padding = blockSize;
+		}
+		byte[] paddedData = new byte[paddedN.length + padding];
+		System.arraycopy(paddedN, 0, paddedData, 0, paddedN.length);
+		paddedData[paddedN.length] = (byte) 0x80;
+
+		// 2. Preparar CBC con IV de ceros
+		byte[] iv = new byte[8]; // IV de ceros para el primer bloque
+
+		// 3. Procesar todos los bloques menos el último usando DES con K1
+		byte[] k1 = Arrays.copyOfRange(keyMac16Byte, 0, 8);
+		byte[] lastBlock = iv.clone();
+
+		HexUtils.hexify(paddedData, false);
+
+		for (int i = 0; i < paddedData.length - 8; i += 8) {
+			// XOR con el bloque anterior (o IV para el primer bloque)
+			for (int j = 0; j < 8; j++) {
+				lastBlock[j] ^= paddedData[i + j];
+			}
+			// Cifrar con DES y K1
+			lastBlock = desEncrypt(lastBlock, k1);
+		}
+
+		// 4. Procesar el último bloque con triple DES
+		for (int j = 0; j < 8; j++) {
+			lastBlock[j] ^= paddedData[paddedData.length - 8 + j];
+		}
+
+		// Usar 3DES (K1+K2+K1) para el último bloque
+		return desedeEncrypt(lastBlock, null, keyMac16Byte);
 	}
 }

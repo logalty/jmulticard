@@ -228,10 +228,13 @@ public abstract class CryptoHelper {
      * y los agregar&aacute; al final para obtener una de 24.
      * @param data Datos a encriptar.
      * @param key Clave 3DES de cifrado.
+	   * @param iv Vector de inicializaci&oacute;n.
+	   *           Si se proporciona <code>null</code> se usar&aacute;
+	   *           un vector con valores aleatorios.
      * @return Datos cifrados.
      * @throws IOException Si ocurre alg&uacute;n problema durante el
      *         encriptado. */
-    public abstract byte[] desedeEncrypt(byte[] data, byte[] key) throws IOException;
+    public abstract byte[] desedeEncrypt(byte[] data, byte[] iv, byte[] key) throws IOException;
 
     /** Desencripta datos mediante Triple DES (modo CBC sin relleno) y con una
      * semilla (IV) de 8 bytes establecidos a cero. Si se le indica una clave de 24 bytes,
@@ -239,10 +242,13 @@ public abstract class CryptoHelper {
      * duplicar&aacute; los 8 primeros y los agregar&aacute; al final para obtener una de 24.
      * @param data Datos a desencriptar.
      * @param key Clave 3DES de descifrado.
+	   * @param iv Vector de inicializaci&oacute;n.
+	   *           Si se proporciona <code>null</code> se usar&aacute;
+  	 *           un vector con valores aleatorios.
      * @return Datos descifrados.
      * @throws IOException Si ocurre alg&uacute;n problema durante el
      *         desencriptado. */
-    public abstract byte[] desedeDecrypt(byte[] data, byte[] key) throws IOException;
+    public abstract byte[] desedeDecrypt(byte[] data, byte[] iv, byte[] key) throws IOException;
 
     /** Encripta datos mediante DES (modo ECB sin relleno).
      * @param data Datos a encriptar.
@@ -334,7 +340,16 @@ public abstract class CryptoHelper {
 	 *                                  CMAC con AES.
 	 * @throws InvalidKeyException Si la clave proporcionada no es una clave AES v&aacute;lida. */
 	public abstract byte[] doAesCmac(byte[] data, byte[] key) throws NoSuchAlgorithmException,
-	                                                                 InvalidKeyException;
+	InvalidKeyException;
+
+	/** Realiza un CMAC con 3DES.
+	 * @param dataN Datos (deben estar ya con el relleno adecuado).
+	 * @param keyMac3DES Clave DES.
+	 * @return CMAC.
+	 * @throws NoSuchAlgorithmException Si no se encuentra un proveedor que permita realizar
+	 *                                  CMAC con AES.
+	 * @throws InvalidKeyException Si la clave proporcionada no es una clave AES v&aacute;lida. */
+	public abstract byte[] calculate3DESRetailMAC(final byte[] dataN, final byte[] keyMac3DES) throws IOException;
 
 	/** Obtiene un punto en una curva el&iacute;ptica.
 	 * @param nonceS Aleatorio de un solo uso.

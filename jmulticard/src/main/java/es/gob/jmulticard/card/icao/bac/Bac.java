@@ -172,7 +172,7 @@ public final class Bac {
 		System.out.println();
 		System.out.println("S: " + HexUtils.hexify(s, true));
 
-		final byte[] eIfd = ch.desedeEncrypt(s, kEnc);
+		final byte[] eIfd = ch.desedeEncrypt(s, null, kEnc);
 		System.out.println();
 		System.out.println("eIFD: " + HexUtils.hexify(eIfd, true));
 
