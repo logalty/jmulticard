@@ -9,12 +9,12 @@
 	<parent>
 		<groupId>es.gob.afirma.jmulticard</groupId>
 		<artifactId>jmulticard-base</artifactId>
-		<version>1.9</version>
+		<version>1.9-logalty</version>
 	</parent>
 
 <build>
        			<plugins>
-	
+
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-compiler-plugin</artifactId>
