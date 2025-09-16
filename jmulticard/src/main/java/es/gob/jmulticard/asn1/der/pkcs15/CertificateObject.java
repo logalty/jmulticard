@@ -133,6 +133,14 @@ public class CertificateObject extends Pkcs15Object {
     	return ((X509CertificateAttributesContextSpecific)getTypeAttributes()).getPathBytes();
     }
 
+		/**
+		 * * Devuelve el tama&ntilde;o del fichero
+		 * * @return Tama&ntilde;o del fichero.
+		 */
+		public int getFileSize() {
+			return ((X509CertificateAttributesContextSpecific) getTypeAttributes()).getFileSize();
+		}
+
     /** Obtiene el n&uacute;mero de serie del Certificado.
      * @return N&uacute;mero de serie del Certificado */
     BigInteger getSerialNumber() {

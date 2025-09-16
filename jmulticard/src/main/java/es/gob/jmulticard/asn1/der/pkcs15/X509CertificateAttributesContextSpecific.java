@@ -95,6 +95,14 @@ public final class X509CertificateAttributesContextSpecific extends ContextSpeci
     	return ((X509CertificateAttributes)getObject()).getPathBytes();
     }
 
+    /** Devuelve el tamaño del fichero.
+     * * @return tamño del fichero.
+	  */
+    int getFileSize() {
+      return ((X509CertificateAttributes)getObject()).getFileSize();
+    }
+
+
     /** Obtiene el n&uacute;mero de serie del Certificado.
      * @return N&uacute;mero de serie del Certificado */
     BigInteger getSerialNumber() {

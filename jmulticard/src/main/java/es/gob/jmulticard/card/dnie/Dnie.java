@@ -171,17 +171,32 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     /** Localizaci&oacute;n del certificado de autenticaci&oacute;n. */
     private transient Location certPathAuth;
 
+    /** Tamaño del fichero del certificado de autenticaci&oacute;n. */
+    private transient Integer certAuthSize = null;
+
     /** Localizaci&oacute;n del certificado de firma.
      * Es opcional, ya que no est&aacute; presente en los DNI de menores de edad no emancipados. */
     private transient Location certPathSign = null;
+
+    /** Tamaño del fichero del certificado de firma.
+     * Es opcional, ya que no est&aacute; presente en los DNI de menores de edad no emancipados. */
+    private transient Integer certSignSize = null;
 
     /** Localizaci&oacute;n del certificado de cifrado.
      * Es opcional, ya que solo est&aacute; presente en las TIF, no en los DNIe normales. */
     private transient Location certPathCyph = null;
 
+    /** Tamaño del fichero del certificado de cifrado.
+     * Es opcional, ya que solo est&aacute; presente en las TIF, no en los DNIe normales. */
+    private transient Integer certCyphSize = null;
+
     /** Localizaci&oacute;n del certificado de firma con seud&oacute;nimo.
      * Es opcional, ya que solo est&aacute; presente en las TIF, no en los DNIe normales. */
     private transient Location certPathSignAlias = null;
+
+		/** Tamaño del certificado del certificado de firma con seud&oacute;nimo.
+     * Es opcional, ya que solo est&aacute; presente en las TIF, no en los DNIe normales. */
+    private transient Integer certSignAliasSize = null;
 
     /** Referencia a la clave privada de autenticaci&oacute;n. */
     private transient DniePrivateKeyReference authKeyRef;
@@ -461,12 +476,15 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
         	final String currentAlias = cdf.getCertificateAlias(i);
             if (CERT_ALIAS_AUTH.equals(currentAlias)) {
                 certPathAuth = new Location(cdf.getCertificatePath(i));
+								certAuthSize = cdf.getCertificateFileSize(i);
             }
             else if (CERT_ALIAS_SIGN.equals(currentAlias)) {
                 certPathSign = new Location(cdf.getCertificatePath(i));
+								certSignSize = cdf.getCertificateFileSize(i);
             }
             else if (CERT_ALIAS_CYPHER.equals(currentAlias)) {
             	certPathCyph = new Location(cdf.getCertificatePath(i));
+							certCyphSize = cdf.getCertificateFileSize(i);
             }
             else if (CERT_ALIAS_INTERMEDIATE_CA.equals(currentAlias)) {
             	try {
@@ -489,6 +507,7 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
             }
             else if (CERT_ALIAS_SIGNALIAS.equals(currentAlias)){
             	certPathSignAlias = new Location(cdf.getCertificatePath(i));
+							certSignAliasSize = cdf.getCertificateFileSize(i);
             }
             else {
             	LOGGER.warning(
@@ -1043,11 +1062,11 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     	return CardMessages.getString("Dnie.0", Integer.toString(retriesLeft)); //$NON-NLS-1$
     }
 
-    private X509Certificate loadCertificate(final Location location) throws IOException,
-                                                                            Iso7816FourCardException,
-                                                                            CertificateException {
+    private X509Certificate loadCertificate(final Location location, final Integer fileSize) throws IOException,
+		Iso7816FourCardException,
+		CertificateException {
     	selectMasterFile();
-        final byte[] certEncoded = selectFileByLocationAndRead(location);
+        final byte[] certEncoded = selectFileByLocationAndRead(location, fileSize);
         return CompressionUtils.getCertificateFromCompressedOrNotData(
     		certEncoded,
     		cryptoHelper
@@ -1066,19 +1085,19 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     		certSignAlias == null && certPathSignAlias != null) {
 		        try {
 		        	if (certPathSign != null) {
-		        		certSign = loadCertificate(certPathSign);
+		        		certSign = loadCertificate(certPathSign, certSignSize);
 		        	}
 		        	else {
 		        		LOGGER.info(
 	        				"El DNIe no contiene certificado de firma (probablemente sea de un menor no emancipado)" //$NON-NLS-1$
         				);
 		        	}
-	        		certAuth = loadCertificate(certPathAuth);
+	        		certAuth = loadCertificate(certPathAuth, certAuthSize);
 		            if (certPathCyph != null) {
-	            		certCyph = loadCertificate(certPathCyph);
+	            		certCyph = loadCertificate(certPathCyph, certCyphSize);
 	            	}
 		            if (certPathSignAlias != null) {
-		            	certSignAlias = loadCertificate(certPathSignAlias);
+		            	certSignAlias = loadCertificate(certPathSignAlias, certSignAliasSize);
 		            }
 		        }
 		        catch (final CertificateException e) {

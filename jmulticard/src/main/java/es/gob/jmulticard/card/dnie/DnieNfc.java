@@ -231,6 +231,11 @@ public class DnieNfc extends Dnie3 {
 				//Si el CAN/MRZ es incorrecto volvemos a pedirlo
 				counter++;
 			}
+			catch(final ApduConnectionException e) {
+				throw new ApduConnectionException(
+                    "No se ha podido abrir el canal PACE: " + e.getMessage(), e //$NON-NLS-1$
+            );
+			}
 
 		}
 

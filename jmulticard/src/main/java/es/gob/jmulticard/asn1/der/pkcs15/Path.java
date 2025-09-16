@@ -87,6 +87,18 @@ public final class Path extends Sequence {
 		return ((OctectString)getElementAt(0)).getOctectStringByteValue();
 	}
 
+	/**
+	 * Obtiene el tamaño del fichero si estaba definido en el path.
+	 * @return El tamaño del fichero, o -1 si no estaba presente.
+	 */
+	public int getPathLengh() {
+		try {
+			return ((PathLength)getElementAt(2)).getIntValue();
+		} catch (final ClassCastException e) {
+			return -1;
+		}
+	}
+
 	@Override
 	public String toString() {
 		return getPathString();

@@ -138,6 +138,21 @@ public final class Cdf extends Record implements Pkcs15Cdf {
     	return null;
     }
 
+    /**
+	 * Obtiene el tama&ntilde;o del fichero del certificado indicado.
+	 * @param index &Iacute;ndice del certificado.
+	 * @return Tama&ntilde;o del fichero del certificado indicado
+	 * 		   o -1 si no se encontr&oacute; el certificado.
+	 */
+	@Override
+	public int getCertificateFileSize(final int index) {
+		final CertificateObject tmpCo = (CertificateObject) getElementAt(index);
+		if (tmpCo != null) {
+			return tmpCo.getFileSize();
+		}
+		return -1; // Si no se encuentra el certificado, devolvemos -1
+	}
+
     /** Obtiene el alias del certificado indicado.
      * @param index &Iacute;ndice del certificado.
      * @return Alias del certificado indicado. */

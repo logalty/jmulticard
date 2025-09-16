@@ -127,6 +127,18 @@ public final class X509CertificateAttributes extends Sequence {
         return ((Path)d).getPathBytes();
     }
 
+	/** Obtiene el tama&ntilde;o del fichero si estaba definido en el path.
+	 * @return El tama&ntilde;o del fichero, o -1 si no estaba presente.
+	 */
+	int getFileSize() {
+		final DecoderObject d = getObject(Path.class);
+		if (d==null) {
+			return -1;
+		}
+		return ((Path)d).getPathLengh();
+	}
+
+
     /** Obtiene el n&uacute;mero de serie del Certificado.
      * @return N&uacute;mero de serie del Certificado */
     BigInteger getSerialNumber() {

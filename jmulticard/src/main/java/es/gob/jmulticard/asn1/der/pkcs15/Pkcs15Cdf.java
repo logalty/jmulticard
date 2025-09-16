@@ -19,6 +19,13 @@ public interface Pkcs15Cdf {
      * @return Ruta PKCS#15 hacia el certificado indicado. */
     String getCertificatePath(int index);
 
+        /**
+     * Obtiene el tamaño del fichero del certificado indicado.
+     * @param index &Iacute;ndice del certificado.
+     * @return Tamaño del fichero del certificado indicado.
+     */
+    int getCertificateFileSize(int index);
+
     /** Obtiene el identificador del certificado indicado.
      * @param index &Iacute;ndice del certificado.
      * @return Identificador del certificado indicado. */

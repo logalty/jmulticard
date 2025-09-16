@@ -85,7 +85,7 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
     private static final StatusWord SW_OFFSET_OUTSIDE_EF = new StatusWord((byte) 0x6B, (byte) 0x00);
 
     /** Tama&ntilde;o m&aacute;ximo de datos que se puede leer en una &uacute;nica APDU. */
-    private static final int MAX_READ_CHUNK = 0xDE;
+    private static final int MAX_READ_CHUNK = 0xFF;
 
     /** <code>Logger</code> por defecto. */
     private static final Logger LOGGER = Logger.getLogger("es.gob.jmulticard"); //$NON-NLS-1$
@@ -360,6 +360,10 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
     public byte[] selectFileByLocationAndRead(final Location location, final Integer fileSize) throws IOException,
             Iso7816FourCardException {
         final int fileLenght = selectFileByLocation(location, fileSize);
+        LOGGER.info(
+        	"Tamaño del grupo: " + fileLenght //$NON-NLS-1$
+            );
+
         return readBinaryComplete(fileLenght);
     }
 

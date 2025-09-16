@@ -119,6 +119,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 					// y si el emisor del documento, convertido a minúsculas, es "españa".
 					// Esta condición es específica para documentos de identidad españoles.
 					if (mrz != null && mrz.getDocType().equals("ID") && mrz.getIssuer().toLowerCase().equals("españa")) {
+						LOGGER.info("Se cargan los certificados");
 						loadCertificatesPaths();
 						certificatePathsLoaded = true;
 					}
