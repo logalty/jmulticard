@@ -247,7 +247,7 @@ public final class SecureMessaging {
 					final byte[] zeroIV = new byte[8];
 
 					data = cryptoHelper.desedeDecrypt(
-							applyPadding(do87Data),
+							do87Data,  // NO aplicar padding adicional, ya está en los datos cifrados
 							zeroIV,
 							kenc
 					);
@@ -271,15 +271,19 @@ public final class SecureMessaging {
 			catch (final IOException e) {
 				throw new SecureMessagingException(e);
 			}
+			
+			// Eliminar padding ISO 7816-4 (0x80 seguido de 0x00s)
+			final byte[] unpaddedData = removePadding(data);
+			
 			// Construir la respuesta APDU desencriptada
-			unwrappedAPDUBytes = new byte[data.length + 2];
-			System.arraycopy(data, 0, unwrappedAPDUBytes, 0, data.length);
+			unwrappedAPDUBytes = new byte[unpaddedData.length + 2];
+			System.arraycopy(unpaddedData, 0, unwrappedAPDUBytes, 0, unpaddedData.length);
 			final byte[] do99Data = do99.getData();
 			System.arraycopy(
 				do99Data,
 				0,
 				unwrappedAPDUBytes,
-				data.length,
+				unpaddedData.length,
 				do99Data.length
 			);
 		}
@@ -476,7 +480,39 @@ public final class SecureMessaging {
 		return paddedData;
 	}
 
+	/** Elimina el padding ISO 7816-4 de los datos descifrados.
+	 * El padding ISO 7816-4 consiste en 0x80 seguido de 0x00s hasta completar el bloque.
+	 * @param data Datos con padding.
+	 * @return Datos sin padding. */
+	private static byte[] removePadding(final byte[] data) {
+		// Buscar el último 0x80 (marcador de inicio de padding)
+		for (int i = data.length - 1; i >= 0; i--) {
+			if (data[i] == (byte) 0x80) {
+				// Verificar que después solo haya 0x00s
+				boolean validPadding = true;
+				for (int j = i + 1; j < data.length; j++) {
+					if (data[j] != (byte) 0x00) {
+						validPadding = false;
+						break;
+					}
+				}
+				if (validPadding) {
+					// Encontrado padding válido, copiar solo los datos
+					final byte[] unpadded = new byte[i];
+					System.arraycopy(data, 0, unpadded, 0, i);
+					return unpadded;
+				}
+			}
+		}
+		// Si no se encuentra padding válido, devolver los datos tal cual
+		return data;
+	}
+
 	public SecureMessagingType getType(){
 		return type;
+	}
+
+	public byte[] getSsc() {
+		return ssc;
 	}
 }

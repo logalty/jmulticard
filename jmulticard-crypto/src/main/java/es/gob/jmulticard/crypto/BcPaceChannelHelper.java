@@ -80,6 +80,7 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 
 		// 1.3.2 - Establecemos el algoritmo para PACE con el comando MSE Set:
 
+		LOGGER.info( "init MseSetPaceAlgorithmApduCommand"); //$NON-NLS-1$
 		comm = new MseSetPaceAlgorithmApduCommand(
 			cla,
 			MseSetPaceAlgorithmApduCommand.PaceAlgorithmOid.PACE_ECDH_GM_AES_CBC_CMAC_128,
@@ -89,6 +90,8 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 		res = conn.transmit(comm);
 
 		if (!res.isOk()) {
+			LOGGER.info( "MseSetPaceAlgorithmApduCommand error"); //$NON-NLS-1$
+
 			throw new PaceException(
 				res.getStatusWord(),
 				comm,
@@ -97,7 +100,7 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 		}
 
 		// 1.3.3 - Primer comando General Autenticate - Get Nonce
-
+		LOGGER.info( "init GeneralAuthenticateApduCommand"); //$NON-NLS-1$
 		comm = new GeneralAuthenticateApduCommand(
 			(byte) 0x10,
 			new byte[] { (byte) 0x7C, (byte) 0x00 }
@@ -154,6 +157,7 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 
 		final byte[] secretNonce;
 		try {
+			LOGGER.info( "init aesDecrypt"); //$NON-NLS-1$
 			secretNonce = cryptoHelper.aesDecrypt(
 				nonce,
 				new byte[0],
@@ -171,7 +175,7 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 		// 1.3.4 - Segundo comando General Autenticate - Map Nonce
 
 		// Generamos un par de claves efimeras EC para el DH
-
+		LOGGER.info( "init TeleTrusTNamedCurves"); //$NON-NLS-1$
 		final X9ECParameters ecdhParameters = TeleTrusTNamedCurves.getByName("brainpoolp256r1"); //$NON-NLS-1$
 		final ECPoint pointG = ecdhParameters.getG();
 		final Fp curve = (ECCurve.Fp) ecdhParameters.getCurve();
@@ -194,7 +198,7 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 				pukIFDDH1UncompressedBytes
 			).getBytes()
 		);
-
+		LOGGER.info( "init GeneralAuthenticateApduCommand"); //$NON-NLS-1$
 		// ... Y la enviamos a la tarjeta
 		comm = new GeneralAuthenticateApduCommand(
 			(byte) 0x10, // CLA
@@ -256,7 +260,7 @@ public final class BcPaceChannelHelper extends PaceChannelHelper {
 			).getBytes()
 		);
 
-
+		LOGGER.info( "init GeneralAuthenticateApduCommand"); //$NON-NLS-1$
 		comm = new GeneralAuthenticateApduCommand(
 			(byte) 0x10, // CLA
 			tlv.getBytes()

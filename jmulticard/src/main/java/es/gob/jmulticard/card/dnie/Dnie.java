@@ -97,6 +97,7 @@ import es.gob.jmulticard.connection.cwa14890.Cwa14890Connection;
 import es.gob.jmulticard.connection.cwa14890.Cwa14890OneV1Connection;
 import es.gob.jmulticard.connection.cwa14890.SecureChannelException;
 import es.gob.jmulticard.connection.pace.PaceConnection;
+import es.gob.jmulticard.connection.bac.BacConnection;
 
 /** DNI Electr&oacute;nico.
  * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s. */
@@ -263,16 +264,16 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
         rawConnection = conn;
         callbackHandler = ch;
 
-        try {
-            callAID();
-        }
-        catch (final Iso7816FourCardException e) {
-            LOGGER.warning(
-                    "No se ha podido llamar al AID: " + e //$NON-NLS-1$
-            );
-        } catch (final Exception e) {
-            LOGGER.warning("No se ha podido llamar al AID" + e); //$NON-NLS-1$
-        }
+        // try {
+        //     callAID();
+        // }
+        // catch (final Iso7816FourCardException e) {
+        //     LOGGER.warning(
+        //             "No se ha podido llamar al AID: " + e //$NON-NLS-1$
+        //     );
+        // } catch (final Exception e) {
+        //     LOGGER.warning("No se ha podido llamar al AID" + e); //$NON-NLS-1$
+        // }
 
         passwordCallback = pwc;
 
@@ -311,8 +312,12 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 	@Override
 	public String toString() {
 		try {
-			final Cdf cdf = getCdf();
-			return getCardName() + "\n" + new DnieSubjectPrincipalParser(cdf.getCertificateSubjectPrincipal(0)).toString(); //$NON-NLS-1$
+			if (rawConnection instanceof PaceConnection) {
+				final Cdf cdf = getCdf();
+				return getCardName() + "\n" + new DnieSubjectPrincipalParser(cdf.getCertificateSubjectPrincipal(0)).toString(); //$NON-NLS-1$
+			} else {
+				return getCardName();
+			}
 		}
 		catch (final ApduConnectionException e) {
 			LOGGER.warning("No se ha podido leer el CDF del DNIe: " + e); //$NON-NLS-1$
@@ -940,10 +945,15 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
      *                      proporcionado un PIN para validar (en el caso de que se opte por verificar el PIN). */
     public void openSecureChannelIfNotAlreadyOpened(final boolean doChv) throws CryptoCardException, PinException {
         // Abrimos el canal seguro si no lo esta ya
+				LOGGER.info("openSecureChannelIfNotAlreadyOpened: INIT");
         if (!isSecurityChannelOpen()) {
+					LOGGER.info("openSecureChannelIfNotAlreadyOpened: (!isSecurityChannelOpen())");
         	// Aunque el canal seguro estuviese cerrado, podria si estar enganchado
             if (!(getConnection() instanceof Cwa14890Connection)) {
-            	final ApduConnection secureConnection;
+				LOGGER.info("openSecureChannelIfNotAlreadyOpened: (!(getConnection() instanceof Cwa14890Connection))");
+
+
+							final ApduConnection secureConnection;
         		secureConnection = new Cwa14890OneV1Connection(
             		this,
             		getConnection(),
@@ -960,6 +970,8 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
             }
             if (doChv) {
 	            try {
+												LOGGER.info("openSecureChannelIfNotAlreadyOpened: verifyPin");
+
 	                verifyPin(getInternalPasswordCallback());
 	            }
 	            catch (final ApduConnectionException e) {
@@ -967,6 +979,8 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 	            }
             }
         }
+				LOGGER.info("openSecureChannelIfNotAlreadyOpened: END");
+
     }
 
     /** Devuelve los intentos restantes de comprobaci&oacute;n de PIN del DNIe.
@@ -1130,7 +1144,7 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 	    //Devuelve true si el canal actual es de PIN o de usuario
         return getConnection() instanceof Cwa14890Connection &&
         		getConnection().isOpen() &&
-        			!(getConnection() instanceof PaceConnection);
+        			(getConnection() instanceof BacConnection);
     }
 
     @Override
@@ -1263,19 +1277,26 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 	 * @throws PinException Si se necesita el PIN para cargar certificados y no se ha podido comprobar el PIN. */
 	private void loadCertificatesIfNotAlreadyLoaded() throws ApduConnectionException, CryptoCardException, PinException {
     	// Si los certificados no estan precargados, lo hacemos ahora
+				LOGGER.info("loadCertificatesIfNotAlreadyLoaded: INIT");
+
         if (certAuth == null) { // Este certificado esta presente en todas las variantes del DNIe
+					LOGGER.info("loadCertificatesIfNotAlreadyLoaded: certAuth == null");
 
         	if (certPathAuth == null) {
+					LOGGER.info("loadCertificatesIfNotAlreadyLoaded: certPathAuth == null");
 				loadCertificatesPaths();
         	}
 
         	// Abrimos el canal si es necesario (esto solo seria necesario en DNIe 1.0)
         	if (needsPinForLoadingCerts()) {
+					LOGGER.info("loadCertificatesIfNotAlreadyLoaded: needsPinForLoadingCerts");
         		openSecureChannelIfNotAlreadyOpened();
         	}
+					LOGGER.info("loadCertificatesIfNotAlreadyLoaded: loadCertificates");
 
             // Cargamos certificados si es necesario
 			loadCertificates();
+					LOGGER.info("loadCertificatesIfNotAlreadyLoaded: END");
         }
 	}
 

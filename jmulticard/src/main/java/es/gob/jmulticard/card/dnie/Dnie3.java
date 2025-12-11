@@ -76,7 +76,6 @@ import es.gob.jmulticard.connection.ApduConnectionException;
 import es.gob.jmulticard.connection.bac.BacConnection;
 import es.gob.jmulticard.connection.ca.ChipAuthentication;
 import es.gob.jmulticard.connection.cwa14890.Cwa14890OneV2Connection;
-import es.gob.jmulticard.connection.pace.PaceConnection;
 
 /** DNI Electr&oacute;nico versi&oacute;n 3&#46;0.
  * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s. */
@@ -109,7 +108,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		  super(conn, pwc, cryptoHlpr, ch, loadCertsAndKeys);
 			boolean certificatePathsLoaded = false;
       this.rawConnection = conn;
-      if (loadCertsAndKeys && rawConnection instanceof PaceConnection) {
+      if (loadCertsAndKeys && !(rawConnection instanceof BacConnection)) {
         try {
 					// Intenta obtener los datos del DG1 (Data Group 1), que normalmente contiene la
 					// MRZ (Machine Readable Zone) de un documento de identidad/pasaporte.
@@ -498,17 +497,16 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
     @Override
 	public Mrz getDg1() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return new Dnie3Dg01Mrz(
-						selectFileByLocationAndRead(FILE_DG01_LOCATION)
-				);
-			}
 			if (rawConnection instanceof BacConnection){
 				return getDg1ByFileId();
+			// 	byte[] dg1Data = readBinaryBySFI(0x01, 0, 256);
+    	// 	return new Dnie3Dg01Mrz(dg1Data);
 			}
-			return null;
+			return new Dnie3Dg01Mrz(
+					selectFileByLocationAndRead(FILE_DG01_LOCATION)
+			);
 		}
-    	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw new FileNotFoundException("DG1 no encontrado: " + e); //$NON-NLS-1$
     }
 			catch (final Iso7816FourCardException e) {
@@ -520,8 +518,21 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 	public Mrz getDg1ByFileId() throws IOException {
 		try {
 			byte[] dg1File = DG01_FILE_ID_TAG;
-			byte[] dg1Bytes = selectFileByIdAndRead(dg1File);
-			return new Dnie3Dg01Mrz(dg1Bytes);
+
+			int fileLength = selectFileById(dg1File);
+			LOGGER.info("DG1 - Tamaño reportado por SELECT: " + fileLength);
+
+			// if (fileLength <= 0) {
+			// 	LOGGER.warning("SELECT FILE reportó tamaño inválido, intentando lectura incremental");
+      //   // Leer en bloques hasta encontrar EOF
+      //   return new Dnie3Dg01Mrz(readBinaryIncrementalWithPadding());
+			// }
+
+			byte[] dg1Bytes = readBinaryComplete(fileLength);
+      return new Dnie3Dg01Mrz(dg1Bytes);
+
+			// byte[] dg1Bytes = selectFileByIdAndRead(dg1File);
+			// return new Dnie3Dg01Mrz(dg1Bytes);
 		} catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG1", e); //$NON-NLS-1$
 		}
@@ -529,15 +540,18 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
     @Override
 	public SubjectFacePhoto getDg2() throws IOException {
-    	final SubjectFacePhoto ret = new SubjectFacePhoto();
+    final SubjectFacePhoto ret = new SubjectFacePhoto();
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				ret.setDerValue(selectFileByLocationAndRead(FILE_DG02_LOCATION));
-				return ret;
-			}
 			if (rawConnection instanceof BacConnection){
 				return getDg2ByFileId();
+    	// 	byte[] dg2Data = readBinaryBySFI(0x02, 0, 4096); // DG2 suele ser más grande
+    	// 	ret.setDerValue(dg2Data);
+			// 	return ret;
+			// }
 			}
+			ret.setDerValue(selectFileByLocationAndRead(FILE_DG02_LOCATION));
+			return ret;
+
 		}
     	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw new FileNotFoundException("DG2 no encontrado: " + e); //$NON-NLS-1$
@@ -545,7 +559,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el DG2", e); //$NON-NLS-1$
 		}
-		return ret;
 	}
 
 	@Override
@@ -553,7 +566,16 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		final SubjectFacePhoto ret = new SubjectFacePhoto();
 		try {
 			byte[] dg2File = DG02_FILE_ID_TAG;
-			byte[] dg2Bytes = selectFileByIdAndRead(dg2File);
+      int fileLength = selectFileById(dg2File);
+      LOGGER.info("DG2 - Tamaño reportado por SELECT: " + fileLength);
+			byte[] dg2Bytes;
+			// if (fileLength <= 0) {
+			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para DG2, intentando lectura incremental");
+			// 		dg2Bytes = readBinaryIncrementalWithPadding();
+			// } else {
+			dg2Bytes = readBinaryComplete(fileLength);
+			// }
+			// byte[] dg2Bytes = selectFileByIdAndRead(dg2File);
 			ret.setDerValue(dg2Bytes);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
@@ -568,12 +590,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
     @Override
 	public byte[] getDg3() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG03_LOCATION);
-			}
-			if (rawConnection instanceof BacConnection){
-				return getDg3ByFileId();
-			}
+			// if (rawConnection instanceof BacConnection){
+			// 	return getDg3ByFileId();
+			// }
+			return selectFileByLocationAndRead(FILE_DG03_LOCATION);
 		}
     	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw (IOException) new FileNotFoundException("DG3 no encontrado").initCause(e); //$NON-NLS-1$
@@ -587,7 +607,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG3", e); //$NON-NLS-1$
 		}
-		return null;
 	}
 
 	@Override
@@ -614,13 +633,11 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 	public SubjectSignaturePhoto getDg7() throws IOException {
     	final SubjectSignaturePhoto ret = new SubjectSignaturePhoto();
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				ret.setDerValue(selectFileByLocationAndRead(FILE_DG07_LOCATION));
-				return ret;
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg7ByFileId();
 			}
+			ret.setDerValue(selectFileByLocationAndRead(FILE_DG07_LOCATION));
+			return ret;
 		}
     	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw (IOException) new FileNotFoundException("DG7 no encontrado").initCause(e); //$NON-NLS-1$
@@ -628,7 +645,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el DG7", e); //$NON-NLS-1$
 		}
-		return ret;
 	}
 
 	@Override
@@ -636,7 +652,17 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		final SubjectSignaturePhoto ret = new SubjectSignaturePhoto();
 		try {
 			byte[] dg7File = DG07_FILE_ID_TAG;
-			ret.setDerValue(selectFileByIdAndRead(dg7File));
+			int fileLength = selectFileById(dg7File);
+      LOGGER.info("DG7 - Tamaño reportado por SELECT: " + fileLength);
+
+			byte[] dg7Bytes;
+			// if (fileLength <= 0) {
+			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para DG7, intentando lectura incremental");
+			// 		dg7Bytes = readBinaryIncrementalWithPadding();
+			// } else {
+			dg7Bytes = readBinaryComplete(fileLength);
+			// }
+			ret.setDerValue(dg7Bytes);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG7 no encontrado").initCause(e); //$NON-NLS-1$
@@ -650,12 +676,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 	@Override
 	public byte[] getDg11() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG11_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg11ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG11_LOCATION);
 		}
     	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw (IOException) new FileNotFoundException("DG11 no encontrado").initCause(e); //$NON-NLS-1$
@@ -663,13 +687,23 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG11", e); //$NON-NLS-1$
 		}
-		return null;
 	}
 	@Override
 	public byte[] getDg11ByFileId() throws IOException {
 		try {
 			byte[] dg11File = DG11_FILE_ID_TAG;
-			return selectFileByIdAndRead(dg11File);
+			int fileLength = selectFileById(dg11File);
+      LOGGER.info("DG11 - Tamaño reportado por SELECT: " + fileLength);
+
+			byte[] dg11Bytes;
+			// if (fileLength <= 0) {
+			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para DG11, intentando lectura incremental");
+			// 		dg11Bytes = readBinaryIncrementalWithPadding();
+			// } else {
+			dg11Bytes = readBinaryComplete(fileLength);
+			// }
+
+			return dg11Bytes;
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG11 no encontrado").initCause(e); //$NON-NLS-1$
@@ -682,12 +716,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
   @Override
 	public byte[] getDg12() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG12_LOCATION);
-			}
-			if (rawConnection instanceof BacConnection) {
-				return getDg12ByFileId();
-			}
+			// if (rawConnection instanceof BacConnection) {
+			// 	return getDg12ByFileId();
+			// }
+			return selectFileByLocationAndRead(FILE_DG12_LOCATION);
 		}
     	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw (IOException) new FileNotFoundException("DG12 no encontrado").initCause(e); //$NON-NLS-1$
@@ -695,7 +727,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG12", e); //$NON-NLS-1$
 		}
-		return null;
 	}
 
 	@Override
@@ -715,16 +746,14 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
   @Override
 	public OptionalDetails getDg13() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				final OptionalDetails ret = new OptionalDetailsDnie3();
-				ret.setDerValue(
-						selectFileByLocationAndRead(FILE_DG13_LOCATION)
-				);
-				return ret;
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg13ByFileId();
 			}
+			final OptionalDetails ret = new OptionalDetailsDnie3();
+			ret.setDerValue(
+				selectFileByLocationAndRead(FILE_DG13_LOCATION)
+			);
+			return ret;
 		}
     	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw (IOException) new FileNotFoundException("DG13 no encontrado").initCause(e); //$NON-NLS-1$
@@ -732,7 +761,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el DG13", e); //$NON-NLS-1$
 		}
-		return null;
 	}
 
 	@Override
@@ -740,9 +768,18 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		try {
 			final OptionalDetails ret = new OptionalDetailsDnie3();
 				byte[] dg13File = DG13_FILE_ID_TAG;
-				ret.setDerValue(
-						selectFileByIdAndRead(dg13File)
-				);
+        int fileLength = selectFileById(dg13File);
+        LOGGER.info("DG13 - Tamaño reportado por SELECT: " + fileLength);
+
+        byte[] dg13Bytes;
+        // if (fileLength <= 0) {
+        //     LOGGER.warning("SELECT FILE reportó tamaño inválido para DG13, intentando lectura incremental");
+        //     dg13Bytes = readBinaryIncrementalWithPadding();
+        // } else {
+				dg13Bytes = readBinaryComplete(fileLength);
+        // }
+
+        ret.setDerValue(dg13Bytes);
 				return ret;
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
@@ -756,27 +793,36 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
   @Override
 	public byte[] getDg14() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG14_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg14ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG14_LOCATION);
 		}
-    	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
-    		throw (IOException) new FileNotFoundException("DG14 no encontrado").initCause(e); //$NON-NLS-1$
-    	}
+    catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+    	throw (IOException) new FileNotFoundException("DG14 no encontrado").initCause(e); //$NON-NLS-1$
+    }
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG14", e); //$NON-NLS-1$
 		}
-		return null;
 	}
 
 	@Override
 	public byte[] getDg14ByFileId() throws IOException {
 		try {
 			byte[] dg14File = DG14_FILE_ID_TAG;
-			byte[] dg14Bytes = selectFileByIdAndRead(dg14File);
+
+			// SELECT FILE y obtener tamaño
+			int fileLength = selectFileById(dg14File);
+			LOGGER.info("DG14 - Tamaño reportado por SELECT: " + fileLength);
+
+			byte[] dg14Bytes;
+			// if (fileLength <= 0) {
+			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para DG14, intentando lectura incremental");
+			// 		dg14Bytes = readBinaryIncrementalWithPadding();
+			// } else {
+			dg14Bytes = readBinaryComplete(fileLength);
+			// }
+
 			return dg14Bytes;
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
@@ -789,34 +835,40 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
   @Override
 	public Sod getSod() throws IOException {
-    	final Sod sod = new Sod(this.getCryptoHelper());
-    	try {
-			if (rawConnection instanceof PaceConnection) {
-				sod.setDerValue(
-						selectFileByLocationAndRead(FILE_SOD_LOCATION)
-				);
-				return sod;
-			}
+    final Sod sod = new Sod(this.getCryptoHelper());
+    try {
 			if (rawConnection instanceof BacConnection) {
 				return getSodByFileId();
 			}
+			sod.setDerValue(
+					selectFileByLocationAndRead(FILE_SOD_LOCATION)
+			);
+			return sod;
 		}
-    	catch (final Asn1Exception | TlvException | Iso7816FourCardException e) {
+		catch (final Asn1Exception | TlvException | Iso7816FourCardException e) {
 			throw new IOException(
 				"No se puede crear un SOD a partir del contenido del fichero", e //$NON-NLS-1$
 			);
 		}
-    	return sod;
-    }
+	}
 
 	@Override
 	public Sod getSodByFileId() throws IOException {
 		final Sod sod = new Sod(this.getCryptoHelper());
 		try {
 			byte[] sodFile = SOD_FILE_ID_TAG;
-			sod.setDerValue(
-				selectFileByIdAndRead(sodFile)
-			);
+						// SELECT FILE y obtener tamaño
+			int fileLength = selectFileById(sodFile);
+			LOGGER.info("SOD - Tamaño reportado por SELECT: " + fileLength);
+
+			byte[] sodBytes;
+			// if (fileLength <= 0) {
+			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para SOD, intentando lectura incremental");
+			// 		sodBytes = readBinaryIncrementalWithPadding();
+			// } else {
+			sodBytes = readBinaryComplete(fileLength);
+			// }
+			sod.setDerValue(sodBytes);
 		}
 		catch (final Asn1Exception | TlvException | Iso7816FourCardException e) {
 			throw new IOException(
@@ -829,24 +881,25 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
   @Override
 	public Com getCom() throws IOException {
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				final Com com = new Com();
-				com.setDerValue(
-						selectFileByLocationAndRead(FILE_COM_LOCATION)
-				);
-				return com;
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getComByFileId();
+			// 	// byte[] comData = readBinaryBySFI(0x1E, 0, 256);
+    	// 	// final Com com = new Com();
+			// 	// com.setDerValue(comData);
+			// 	// return com;
 			}
+			final Com com = new Com();
+			com.setDerValue(
+					selectFileByLocationAndRead(FILE_COM_LOCATION)
+			);
+			return com;
 		}
-    	catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+    catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw (IOException) new FileNotFoundException("COM no encontrado").initCause(e); //$NON-NLS-1$
-    	}
+    }
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el 'Common Data' (COM)", e); //$NON-NLS-1$
 		}
-		return null;
 	}
 
 	@Override
@@ -854,9 +907,25 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		try {
 			final Com com = new Com();
 			byte[] comFile = COM_FILE_ID_TAG;
-			byte[] comBytes = selectFileByIdAndRead(comFile);
+
+			// SELECT FILE y obtener tamaño
+			int fileLength = selectFileById(comFile);
+			LOGGER.info("COM - Tamaño reportado por SELECT: " + fileLength);
+
+			byte[] comBytes;
+			// if (fileLength <= 0) {
+			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para COM, intentando lectura incremental");
+			// 		comBytes = readBinaryIncrementalWithPadding();
+			// } else {
+			comBytes = readBinaryComplete(fileLength);
+			// }
+
 			com.setDerValue(comBytes);
 			return com;
+
+			// byte[] comBytes = selectFileByIdAndRead(comFile);
+			// com.setDerValue(comBytes);
+			// return com;
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("COM no encontrado").initCause(e); //$NON-NLS-1$
@@ -897,12 +966,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG05_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg5ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG05_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG5 no encontrado").initCause(e); //$NON-NLS-1$
@@ -910,7 +977,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG5", e); //$NON-NLS-1$
 		}
-		return null;
   }
 
 	@Override
@@ -939,12 +1005,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG06_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg6ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG06_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG6 no encontrado").initCause(e); //$NON-NLS-1$
@@ -952,7 +1016,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG6", e); //$NON-NLS-1$
 		}
-		return null;
   }
 
 	@Override
@@ -981,12 +1044,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG08_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg8ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG08_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG8 no encontrado").initCause(e); //$NON-NLS-1$
@@ -994,7 +1055,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG8", e); //$NON-NLS-1$
 		}
-		return null;
   }
 
 	@Override
@@ -1023,12 +1083,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG09_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg9ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG09_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG9 no encontrado").initCause(e); //$NON-NLS-1$
@@ -1036,8 +1094,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG9", e); //$NON-NLS-1$
 		}
-		return null;
-    }
+  }
 
 	@Override
 	public byte[] getDg9ByFileId() throws IOException {
@@ -1065,12 +1122,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG10_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg10ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG10_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG10 no encontrado").initCause(e); //$NON-NLS-1$
@@ -1078,7 +1133,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG9", e); //$NON-NLS-1$
 		}
-		return null;
   }
 
 	@Override
@@ -1107,12 +1161,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG15_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg15ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG15_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG15 no encontrado").initCause(e); //$NON-NLS-1$
@@ -1120,18 +1172,17 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG15", e); //$NON-NLS-1$
 		}
-		return null;
   }
 
 	@Override
 	public byte[] getDg15ByFileId() throws IOException {
-		/*throw new UnsupportedOperationException(
-				"Este MRTD no tiene DG15" //$NON-NLS-1$
-		);*/
-
 		try {
 			byte[] dg15File = DG15_FILE_ID_TAG;
-			byte[] dg15Bytes = selectFileByIdAndRead(dg15File);
+			int fileLength = selectFileById(dg15File);
+			LOGGER.info("DG15 - Tamaño reportado por SELECT: " + fileLength);
+
+			byte[] dg15Bytes;
+			dg15Bytes = readBinaryComplete(fileLength);
 			return dg15Bytes;
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
@@ -1149,12 +1200,10 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);*/
 
 		try {
-			if (rawConnection instanceof PaceConnection) {
-				return selectFileByLocationAndRead(FILE_DG16_LOCATION);
-			}
 			if (rawConnection instanceof BacConnection) {
 				return getDg16ByFileId();
 			}
+			return selectFileByLocationAndRead(FILE_DG16_LOCATION);
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
 			throw (IOException) new FileNotFoundException("DG16 no encontrado").initCause(e); //$NON-NLS-1$
@@ -1162,7 +1211,6 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG16", e); //$NON-NLS-1$
 		}
-		return null;
   }
 
 	@Override

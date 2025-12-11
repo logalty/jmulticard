@@ -162,6 +162,7 @@ public abstract class CryptoHelper {
 		 * @param name Nombre del algoritmo de huella digital a partir de su nombre.
 		 * @return Algoritmo de huella digital. */
 		public static DigestAlgorithm getDigestAlgorithm(final String name) {
+			// Soportar nombres estándar
 			if ("SHA1".equals(name) || "SHA-1".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
 				return SHA1;
 			}
@@ -174,6 +175,47 @@ public abstract class CryptoHelper {
 			if ("SHA512".equals(name) || "SHA-512".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
 				return SHA512;
 			}
+			
+			// Soportar OIDs en formato hexadecimal separado por guiones (encoding DER/BER)
+			// Estos son los valores reales que vienen del SOD
+			if (name != null && name.contains("-")) {
+				// SHA-256: OID 2.16.840.1.101.3.4.2.1
+				// Encoding DER: 60 86 48 01 65 03 04 02 01
+				if ("60-86-48-01-65-03-04-02-01".equals(name)) {
+					return SHA256;
+				}
+				// SHA-384: OID 2.16.840.1.101.3.4.2.2
+				// Encoding DER: 60 86 48 01 65 03 04 02 02
+				if ("60-86-48-01-65-03-04-02-02".equals(name)) {
+					return SHA384;
+				}
+				// SHA-512: OID 2.16.840.1.101.3.4.2.3
+				// Encoding DER: 60 86 48 01 65 03 04 02 03
+				if ("60-86-48-01-65-03-04-02-03".equals(name)) {
+					return SHA512;
+				}
+				// SHA-1: OID 1.3.14.3.2.26
+				// Encoding DER: 2B 0E 03 02 1A
+				if ("2B-0E-03-02-1A".equalsIgnoreCase(name)) {
+					return SHA1;
+				}
+				
+				// También soportar formato decimal separado por puntos
+				final String oidDotFormat = name.replace("-", ".");
+				if ("2.16.840.1.101.3.4.2.1".equals(oidDotFormat)) {
+					return SHA256;
+				}
+				if ("2.16.840.1.101.3.4.2.2".equals(oidDotFormat)) {
+					return SHA384;
+				}
+				if ("2.16.840.1.101.3.4.2.3".equals(oidDotFormat)) {
+					return SHA512;
+				}
+				if ("1.3.14.3.2.26".equals(oidDotFormat)) {
+					return SHA1;
+				}
+			}
+			
 			throw new IllegalArgumentException(
 				"Algoritmo de huella no soportado: " + name //$NON-NLS-1$
 			);

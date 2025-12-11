@@ -168,6 +168,7 @@ public class DnieNfc extends Dnie3 {
 						);
 					}
 					paceInitValue = (String)o;
+					LOGGER.info( "paceInitValue: " + paceInitValue); //$NON-NLS
 				}
 				catch (final NoSuchMethodException    |
 					         SecurityException        |
@@ -181,7 +182,7 @@ public class DnieNfc extends Dnie3 {
 
 				//Se obtiene el tipo de inicializador analizando el valor introducido.
 				paceInitType = getPasswordType(paceInitValue);
-
+				LOGGER.info( "paceInitType: " + paceInitType.name()); //$NON-NLS
 				if (paceInitValue == null || paceInitValue.isEmpty() || paceInitType == null)  {
 					throw new InvalidCanOrMrzException(
 						"El CAN/MRZ no puede ser nulo ni vacio" //$NON-NLS-1$
@@ -203,11 +204,14 @@ public class DnieNfc extends Dnie3 {
 						);
 				}
 
+				LOGGER.info( "init openPaceChannel"); //$NON-NLS
 				final SecureMessaging sm = cryptoHelper.getPaceChannelHelper().openPaceChannel(
 					(byte)0x00,
 					paceInitializer,
 					con
 				);
+
+				LOGGER.info( "init PaceConnection"); //$NON-NLS
 
 				return new PaceConnection(
 		    		con,

@@ -60,6 +60,8 @@ import es.gob.jmulticard.apdu.iso7816four.SelectFileApduResponse;
 import es.gob.jmulticard.apdu.iso7816four.SelectFileByIdApduCommand;
 import es.gob.jmulticard.asn1.Tlv;
 import es.gob.jmulticard.card.AbstractSmartCard;
+import es.gob.jmulticard.card.CardSecurityException;
+import es.gob.jmulticard.card.CryptoCardException;
 import es.gob.jmulticard.card.Location;
 import es.gob.jmulticard.card.PinException;
 import es.gob.jmulticard.card.icao.TlvHeaderInfo;
@@ -97,6 +99,41 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
         super(c, conn);
     }
 
+    /**
+     * Lee un archivo usando Short File Identifier (SFI) sin necesidad de SELECT previo.
+     * Esto es compatible con pasaportes que no soportan SELECT en modo BAC secure messaging.
+     *
+     * @param sfi Short File Identifier del archivo (byte bajo del FID)
+     * @param offset Offset desde el inicio del archivo
+     * @param length Número de bytes a leer
+     * @return Datos leídos del archivo
+     * @throws ApduConnectionException Si hay error en la comunicación
+     */
+    protected byte[] readBinaryBySFI(int sfi, int offset, int length) throws ApduConnectionException {
+        // P1 = 0x80 | SFI (bit 7 activado para indicar que usamos SFI)
+        byte p1 = (byte) (0x80 | (sfi & 0x1F));  // Solo los 5 bits bajos del SFI
+        byte p2 = (byte) offset;  // Offset en el archivo
+
+        CommandApdu commandApdu = new CommandApdu(
+            (byte) 0x00,  // CLA
+            (byte) 0xB0,  // INS (READ BINARY)
+            p1,           // P1 = 0x80 | SFI
+            p2,           // P2 = Offset
+            null,         // No data
+            length // Le (bytes esperados)
+        );
+
+        ResponseApdu response = getConnection().transmit(commandApdu);
+
+        if (!response.getStatusWord().isOk()) {
+            throw new ApduConnectionException(
+                "Error leyendo archivo con SFI " + Integer.toHexString(sfi) +
+                ": " + response.getStatusWord()
+            );
+        }
+
+        return response.getData();
+    }
     /** Lee un contenido binario del fichero actualmente seleccionado.
      * @param msbOffset Octeto m&aacute;s significativo del desplazamiento
      *                  (<i>offset</i>) hasta el punto de inicio de la lectura desde
@@ -165,79 +202,231 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      * @return APDU de respuesta.
      * @throws ApduConnectionException Si hay problemas en el env&iacute;o de la APDU.
      * @throws IOException Si hay problemas en el <i>buffer</i> de lectura. */
-    public byte[] readBinaryComplete(int len) throws IOException {
-
-        int off = 0;
-        if (len == 0) {
-            try {
-                TlvHeaderInfo headerInfo = parseFileHeader((byte) 5);
-                len = headerInfo.valueLength + headerInfo.headerLength;
-            } catch (final RequiredSecurityStateNotSatisfiedException e) {
-                throw new IOException(
-            		"Condicion de seguridad no satisfecha al leer el fichero", e //$NON-NLS-1$
-            	);
-            } catch (final OffsetOutsideEfException e) {
-            	throw new IOException(
-            		"Se ha intentado una lectura fuera de los limites del fichero", e //$NON-NLS-1$
-            	);
-            } catch (final ApduConnectionException e) {
-            	throw new IOException(
-            		"Error de conexion al leer el fichero", e //$NON-NLS-1$
-            	);
+public byte[] readBinaryComplete(int len) throws IOException {
+    int off = 0;
+    if (len == 0) {
+        try {
+            TlvHeaderInfo headerInfo = parseFileHeader((byte) 4);
+            if (headerInfo == null) {
+                LOGGER.warning("No se pudo parsear cabecera TLV, usando lectura incremental");
+                return readBinaryIncremental();
             }
+            len = headerInfo.valueLength + headerInfo.headerLength;
+            LOGGER.info("Tamaño total calculado desde cabecera TLV: " + len +
+                       " (header=" + headerInfo.headerLength + " + value=" + headerInfo.valueLength + ")");
+        } catch (final RequiredSecurityStateNotSatisfiedException e) {
+            throw new IOException("Condicion de seguridad no satisfecha al leer el fichero", e);
+        } catch (final OffsetOutsideEfException e) {
+            throw new IOException("Se ha intentado una lectura fuera de los limites del fichero", e);
+        } catch (final ApduConnectionException e) {
+            throw new IOException("Error de conexion al leer el fichero", e);
+        } catch (final Iso7816FourCardException e) {
+            throw new IOException("Error leyendo fichero", e);
         }
-        ResponseApdu readedResponse;
-        final ByteArrayOutputStream out = new ByteArrayOutputStream();
-
-        int totalBytesToRead = len;
-        // Leemos en iteraciones de MAX_READ_CHUNK bytes
-        while (off < len) {
-            // Calcular cuántos bytes quedan por leer en esta iteración
-            int bytesToReadThisChunk = Math.min(MAX_READ_CHUNK, totalBytesToRead - off);
-
-            final byte msbOffset = (byte)(off >> 8);
-            final byte lsbOffset = (byte)(off & 0xFF);
-            final int left = len - off;
-            try {
-	            if (left < MAX_READ_CHUNK) { // Si es menor que el maximo que podemos leer por iteracion
-	                readedResponse = readBinary(msbOffset, lsbOffset, (byte) left);
-	            }
-	            else {
-	                readedResponse = readBinary(msbOffset, lsbOffset, (byte) MAX_READ_CHUNK);
-	            }
-            }
-            catch(final OffsetOutsideEfException e) {
-            	LOGGER.warning(
-        			"Se ha intentado una lectura fuera de los limites del fichero, se devolvera lo leido hasta ahora: " + e //$NON-NLS-1$
-    			);
-            	return out.toByteArray();
-            }
-            catch (final RequiredSecurityStateNotSatisfiedException e) {
-				throw new IOException(
-					"Condicion de seguridad no satisfecha", e //$NON-NLS-1$
-				);
-			}
-
-            final boolean eofReached = SW_EOF_REACHED.equals(readedResponse.getStatusWord());
-
-            if (!readedResponse.isOk() && !eofReached) {
-                throw new IOException(
-            		"Error leyendo el binario (" + readedResponse.getStatusWord() + ")" //$NON-NLS-1$ //$NON-NLS-2$
-        		);
-            }
-
-            int currentChunkLength = readedResponse.getData().length;
-            out.write(readedResponse.getData(), 0, Math.min(currentChunkLength, bytesToReadThisChunk));
-            off += MAX_READ_CHUNK;
-
-            // Si hemos llegado al final no seguimos leyendo
-            if (eofReached) {
-            	break;
-            }
-        }
-        return out.toByteArray();
     }
 
+    ResponseApdu readedResponse;
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+    while (off < len) {
+        final byte msbOffset = (byte)(off >> 8);
+        final byte lsbOffset = (byte)(off & 0xFF);
+        final int left = len - off;
+
+        // Calcular cuántos bytes leer en este chunk
+        // Algunos chips (pasaportes argentinos) son muy estrictos con el tamaño
+        // Usar bloques más pequeños para máxima compatibilidad: 96 bytes
+        final int requestedBytes = Math.min(left, 96);
+
+        try {
+            readedResponse = readBinary(msbOffset, lsbOffset, (byte) requestedBytes);
+        }
+        catch(final OffsetOutsideEfException e) {
+            LOGGER.warning("Se ha intentado una lectura fuera de los limites del fichero, se devolvera lo leido hasta ahora: " + e);
+            return out.toByteArray();
+        }
+        catch (final RequiredSecurityStateNotSatisfiedException e) {
+            throw new IOException("Condicion de seguridad no satisfecha", e);
+        }
+
+        final boolean eofReached = SW_EOF_REACHED.equals(readedResponse.getStatusWord());
+
+        if (!readedResponse.isOk() && !eofReached) {
+            throw new IOException("Error leyendo el binario (" + readedResponse.getStatusWord() + ")");
+        }
+
+        final byte[] data = readedResponse.getData();
+        if (data != null && data.length > 0) {
+            // Solo escribir los bytes necesarios, descartando padding del cifrado en bloques
+            int bytesToWrite = Math.min(data.length, len - off);
+            out.write(data, 0, bytesToWrite);
+            off += bytesToWrite;
+
+            if (DEBUG && data.length > bytesToWrite) {
+                LOGGER.info("Descartados " + (data.length - bytesToWrite) +
+                        " bytes de padding del cifrado en bloques");
+            }
+        }
+
+        if (eofReached || data == null || data.length == 0) {
+            break;
+        }
+
+        // Si recibimos menos de lo pedido, hemos llegado al final
+        if (data.length < requestedBytes) {
+            break;
+        }
+    }
+
+    return out.toByteArray();
+}
+
+    /**
+     * Lee un archivo binario en bloques incrementales hasta encontrar EOF.
+     * Útil cuando SELECT FILE no devuelve el tamaño correcto.
+     * @return Contenido completo del archivo.
+     * @throws IOException Si hay problemas leyendo.
+     * @throws Iso7816FourCardException Si hay errores APDU.
+     */
+    public byte[] readBinaryIncremental() throws IOException, Iso7816FourCardException {
+        final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        int offset = 0;
+        final int blockSize = 250; // Leer en bloques de 250 bytes (seguro para secure messaging)
+
+        while (true) {
+            try {
+                final byte msbOffset = (byte) ((offset >> 8) & 0xFF);
+                final byte lsbOffset = (byte) (offset & 0xFF);
+
+                final ResponseApdu response = readBinary(msbOffset, lsbOffset, (byte) blockSize);
+
+                final byte[] data = response.getData();
+                if (data == null || data.length == 0) {
+                    break; // EOF alcanzado
+                }
+
+                baos.write(data);
+
+                // Si recibimos menos bytes de los solicitados, hemos llegado al final
+                if (data.length < blockSize) {
+                    break;
+                }
+
+                offset += data.length;
+
+            } catch (final OffsetOutsideEfException e) {
+                // Fin del archivo alcanzado
+                LOGGER.info("EOF alcanzado en offset: " + offset);
+                break;
+            } catch (final ApduConnectionException e) {
+                throw new CryptoCardException("Error en comunicación durante lectura incremental", e);
+            }
+        }
+
+        return baos.toByteArray();
+}
+    /**
+     * Lee un archivo binario en bloques incrementales hasta encontrar EOF.
+     * No falla si el tamaño reportado por SELECT es incorrecto.
+     * @return Contenido completo del archivo sin padding.
+     * @throws IOException Si hay problemas leyendo.
+     * @throws Iso7816FourCardException Si hay errores APDU.
+     */
+    public byte[] readBinaryIncrementalWithPadding() throws IOException, Iso7816FourCardException {
+        final java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        int offset = 0;
+        final int blockSize = 164; // 164 bytes máximo en BAC para evitar problemas con padding
+
+        while (true) {
+            try {
+                final byte msbOffset = (byte) ((offset >> 8) & 0xFF);
+                final byte lsbOffset = (byte) (offset & 0xFF);
+
+                // readBinary es el método privado de AbstractIso7816FourCard
+                final ResponseApdu response = readBinary(msbOffset, lsbOffset, (byte) blockSize);
+
+                final byte[] data = response.getData();
+                if (data == null || data.length == 0) {
+                    LOGGER.info("EOF alcanzado en offset " + offset + " (sin datos)");
+                    break;
+                }
+
+                baos.write(data);
+                LOGGER.fine("Leídos " + data.length + " bytes en offset " + offset);
+
+                // Si recibimos menos bytes de los solicitados, hemos llegado al final
+                if (data.length < blockSize) {
+                    LOGGER.info("EOF alcanzado en offset " + offset + " (" + data.length + " < " + blockSize + ")");
+                    break;
+                }
+
+                offset += data.length;
+
+                // Protección contra loops infinitos
+                if (offset > 65536) { // 64KB máximo por DG
+                    LOGGER.warning("Límite de 64KB alcanzado, deteniendo lectura");
+                    break;
+                }
+
+            } catch (final OffsetOutsideEfException e) {
+                LOGGER.info("EOF alcanzado en offset " + offset + " (OffsetOutsideEfException)");
+                break;
+            } catch (final RequiredSecurityStateNotSatisfiedException e) {
+                throw new CardSecurityException("No se tienen permisos para leer", e);
+            } catch (final ApduConnectionException e) {
+                LOGGER.info("EOF alcanzado (ApduConnectionException) en offset " + offset + ": " + e.getMessage());
+                break;
+            }
+        }
+
+        final byte[] result = baos.toByteArray();
+
+        // CRÍTICO: Eliminar padding ISO 9797-1 (0x80 seguido de 0x00s) al final
+        return removePadding(result);
+    }
+
+    /**
+     * Elimina el padding ISO 9797-1 (0x80 seguido de 0x00s) del final de los datos.
+     * Este padding es añadido por el secure messaging en BAC.
+     * @param data Datos con posible padding.
+     * @return Datos sin padding.
+     */
+    private byte[] removePadding(final byte[] data) {
+        if (data == null || data.length == 0) {
+            return data;
+        }
+
+        // Buscar el último 0x80 que marca el inicio del padding
+        int paddingStart = data.length;
+        for (int i = data.length - 1; i >= 0; i--) {
+            if (data[i] == (byte) 0x80) {
+                // Verificar que después solo hay 0x00s
+                boolean isPadding = true;
+                for (int j = i + 1; j < data.length; j++) {
+                    if (data[j] != (byte) 0x00) {
+                        isPadding = false;
+                        break;
+                    }
+                }
+                if (isPadding) {
+                    paddingStart = i;
+                    break;
+                }
+            } else if (data[i] != (byte) 0x00) {
+                // Si encontramos un byte que no es 0x00 ni 0x80, no hay padding
+                break;
+            }
+        }
+
+        if (paddingStart < data.length) {
+            LOGGER.fine("Eliminando " + (data.length - paddingStart) + " bytes de padding ISO 9797-1");
+            final byte[] result = new byte[paddingStart];
+            System.arraycopy(data, 0, result, 0, paddingStart);
+            return result;
+        }
+
+        return data;
+    }
 	/** Selecciona un fichero por nombre.
 	 * @param name Nombre del fichero
 	 * @return Tama&ntilde;o del fichero seleccionado.
@@ -359,12 +548,12 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      * @throws IOException Si hay problemas en el <i>buffer</i> de lectura. */
     public byte[] selectFileByLocationAndRead(final Location location, final Integer fileSize) throws IOException,
             Iso7816FourCardException {
-        final int fileLenght = selectFileByLocation(location, fileSize);
+        final int fileLength = selectFileByLocation(location, fileSize);
         LOGGER.info(
-        	"Tamaño del grupo: " + fileLenght //$NON-NLS-1$
+        	"Tamaño del grupo: " + fileLength //$NON-NLS-1$
             );
 
-        return readBinaryComplete(fileLenght);
+        return readBinaryComplete(fileLength);
     }
 
     /** Selecciona el fichero maestro (directorio ra&iacute;z de la tarjeta).
@@ -422,59 +611,81 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      *                      es incorrecto y no estaba habilitado el reintento autom&aacute;tico
      * @throws es.gob.jmulticard.card.AuthenticationModeLockedException Si est&aacute; bloqueada la verificaci&oacute;n
      *         de PIN (por ejemplo, por superar el n&uacute;mero m&aacute;ximo de intentos). */
-    public abstract void verifyPin(PasswordCallback pinPc) throws ApduConnectionException,
-                                                                  PinException;
+    public abstract void verifyPin(PasswordCallback pinPc) throws ApduConnectionException, PinException;
 
-                                                                      /**
+    /**
      * Lee y parsea la cabecera TLV del fichero actualmente seleccionado.
+     * Equivalente al código Swift de iOS que funciona correctamente.
      *
-     * @param initialReadLength Cuántos bytes leer inicialmente para la cabecera (ej. 5).
+     * @param initialReadLength Cuántos bytes leer inicialmente para la cabecera.
      * @return TlvHeaderInfo con la información parseada, o null si hay error.
      */
     private TlvHeaderInfo parseFileHeader(byte initialReadLength) throws ApduConnectionException, RequiredSecurityStateNotSatisfiedException, OffsetOutsideEfException {
+        // Leer al menos 4 bytes como en Swift: <tag><length><data...>
+        if (initialReadLength < 4) {
+            initialReadLength = 4;
+        }
+
         ResponseApdu resp = readBinary((byte)0x00, (byte)0x00, initialReadLength);
-        if (!resp.isOk()) {
+
+        // Aceptar respuestas OK o EOF Warning (6282)
+        if (!resp.isOk() && !SW_EOF_REACHED.equals(resp.getStatusWord())) {
+            LOGGER.warning("parseFileHeader: respuesta no OK: " + resp.getStatusWord());
             return null;
         }
 
         byte[] headerBytes = resp.getData();
-        if (headerBytes == null || headerBytes.length < 2) { // Mínimo Tag + primer byte de Longitud
+        if (headerBytes == null || headerBytes.length < 2) {
+            LOGGER.warning("parseFileHeader: datos insuficientes");
             return null;
         }
 
+        // Tag en el primer byte
         int tag = headerBytes[0] & 0xFF;
-        byte firstLengthByte = headerBytes[1];
+
+        // Parsear longitud ASN.1 (equivalente a asn1Length en Swift)
         int valueLength;
-        int headerTotalLength; // Longitud de T+L
+        int headerTotalLength;  // Equivalente a "amountRead" en Swift
 
-        if ((firstLengthByte & 0x80) == 0) { // Forma corta
-            valueLength = firstLengthByte & 0x7F;
-            headerTotalLength = 2; // Tag (1) + L (1)
-        } else { // Forma larga
-            int numSubsequentLengthBytes = firstLengthByte & 0x7F;
+        byte lengthByte = headerBytes[1];
 
-            if (numSubsequentLengthBytes == 0) {
-                return null; // Longitud indefinida
-            }
-            if (numSubsequentLengthBytes > 4) { // Prácticamente, >3 es raro para eMRTDs. 4 es el max ASN.1 para len.
+        if ((lengthByte & 0xFF) < 0x80) {
+            // Forma corta: el byte directamente es la longitud
+            valueLength = lengthByte & 0x7F;
+            headerTotalLength = 2; // Tag (1) + Length (1)
+
+        } else if ((lengthByte & 0xFF) == 0x81) {
+            // Forma larga: 1 byte adicional para la longitud
+            if (headerBytes.length < 3) {
+                LOGGER.warning("parseFileHeader: cabecera incompleta para 0x81");
                 return null;
             }
+            valueLength = headerBytes[2] & 0xFF;
+            headerTotalLength = 3; // Tag (1) + 0x81 (1) + Length (1)
 
-            headerTotalLength = 1 // (/*Tag*/)
-                + 1 // (/*0x8X byte*/)
-                + numSubsequentLengthBytes;
-
-            if (headerBytes.length < headerTotalLength) {
-                // Aquí podrías intentar leer más bytes si initialReadLength fue muy pequeña
-                // o simplemente fallar. Por ahora, fallamos.
+        } else if ((lengthByte & 0xFF) == 0x82) {
+            // Forma larga: 2 bytes adicionales para la longitud
+            if (headerBytes.length < 4) {
+                LOGGER.warning("parseFileHeader: cabecera incompleta para 0x82");
                 return null;
             }
+            // Leer 2 bytes en big-endian
+            valueLength = ((headerBytes[2] & 0xFF) << 8) | (headerBytes[3] & 0xFF);
+            headerTotalLength = 4; // Tag (1) + 0x82 (1) + Length (2)
 
-            valueLength = 0;
-            for (int i = 0; i < numSubsequentLengthBytes; i++) {
-                valueLength = (valueLength << 8) + (headerBytes[1 + 1 + i] & 0xFF); // Índice: 1 (Tag) + 1 (0x8X) + i
-            }
+        } else {
+            // 0x83 o superior (3+ bytes de longitud) o longitud indefinida (0x80)
+            LOGGER.warning("parseFileHeader: formato de longitud no soportado: 0x" +
+                        Integer.toHexString(lengthByte & 0xFF));
+            return null;
         }
-        return new TlvHeaderInfo(tag, valueLength, headerTotalLength, Arrays.copyOf(headerBytes, Math.min(headerBytes.length, headerTotalLength)));
+
+        LOGGER.info("parseFileHeader: Tag=0x" + Integer.toHexString(tag) +
+                    ", headerLength=" + headerTotalLength +
+                    ", valueLength=" + valueLength +
+                    ", totalLength=" + (headerTotalLength + valueLength));
+
+        return new TlvHeaderInfo(tag, valueLength, headerTotalLength,
+                                Arrays.copyOf(headerBytes, Math.min(headerBytes.length, headerTotalLength)));
     }
 }
