@@ -221,6 +221,9 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 
     private PasswordCallback passwordCallback;
 
+    /** Current AID commmand*/
+		protected transient byte[] aidCommand = null;
+
 	//*************************************************************************
 	//************************ CONSTRUCTORES **********************************
 
@@ -239,7 +242,7 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     	this(conn, pwc, cryptoHlpr, ch, true);
     }
 
-    /** Construye una clase que representa un DNIe.
+		/** Construye una clase que representa un DNIe.
      * @param conn Conexi&oacute;n con la tarjeta.
      * @param pwc <i>PasswordCallback</i> para obtener el PIN del DNIe.
      * @param cryptoHlpr Funcionalidades criptogr&aacute;ficas de utilidad que
@@ -455,9 +458,19 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     public Cdf getCdf() throws ApduConnectionException {
         final Cdf cdf = new Cdf();
         try {
-        	selectMasterFile();
-        	final byte[] cdfBytes = selectFileByLocationAndRead(CDF_LOCATION);
-            cdf.setDerValue(cdfBytes);
+					selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+        	// selectMasterFile();
+					LOGGER.info("Cargando el CDF de la tarjeta desde la localizacion: " + CDF_LOCATION); //$NON-NLS-1$
+					selectFileById(new byte[] { (byte)0x50, (byte)0x15 });
+
+					int fileLength = selectFileById(new byte[] { (byte)0x60, (byte)0x04 });
+					LOGGER.info("CDF - Tamaño reportado por SELECT: " + fileLength);
+
+					final byte[] cdfBytes = readBinaryComplete(fileLength);
+
+					// final byte[] cdfBytes = selectFileByLocationAndRead(CDF_LOCATION);
+					LOGGER.info("CDF cargado correctamente, con un tamanio de " + cdfBytes.length + " bytes"); //$NON-NLS-1$ //$NON-NLS-2$
+          cdf.setDerValue(cdfBytes);
         }
         catch (final IOException              |
         		     Iso7816FourCardException |
@@ -477,7 +490,9 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 
         final Cdf cdf = getCdf();
 
+				LOGGER.info("CDF cargado correctamente, con un total de " + cdf.getCertificateCount() + " certificados"); //$NON-NLS-1$ //$NON-NLS-2$
         for (int i = 0; i < cdf.getCertificateCount(); i++) {
+					LOGGER.info("Procesando el certificado numero " + (i+1) + " con alias " + cdf.getCertificateAlias(i) + " y ruta " + cdf.getCertificatePath(i)); //$
         	final String currentAlias = cdf.getCertificateAlias(i);
             if (CERT_ALIAS_AUTH.equals(currentAlias)) {
                 certPathAuth = new Location(cdf.getCertificatePath(i));
@@ -492,23 +507,16 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 							certCyphSize = cdf.getCertificateFileSize(i);
             }
             else if (CERT_ALIAS_INTERMEDIATE_CA.equals(currentAlias)) {
-            	try {
-            		final byte[] intermediateCaCertEncoded = selectFileByLocationAndRead(
-						new Location(
-							cdf.getCertificatePath(i)
-						)
-    				);
-            		intermediateCaCert = CompressionUtils.getCertificateFromCompressedOrNotData(
-        				intermediateCaCertEncoded,
-        				cryptoHelper
-    				);
-            	}
-            	catch (final Exception e) {
-            		LOGGER.warning(
-        				"No se ha podido cargar el certificado de la autoridad intermedia del CNP: " + e //$NON-NLS-1$
-    				);
-            		intermediateCaCert = null;
-            	}
+            // 	try {
+						// 		LOGGER.info("Cargando el certificado de la CA intermedia del CNP desde la localizacion: " + cdf.getCertificatePath(i)); //$NON-NLS-1$
+						// 		intermediateCaCert = loadCertificate(new Location(cdf.getCertificatePath(i)), cdf.getCertificateFileSize(i));
+            // 	}
+            // 	catch (final Exception e) {
+            // 		LOGGER.warning(
+        		// 		"No se ha podido cargar el certificado de la autoridad intermedia del CNP: " + e //$NON-NLS-1$
+    				// );
+            // 		intermediateCaCert = null;
+            // 	}
             }
             else if (CERT_ALIAS_SIGNALIAS.equals(currentAlias)){
             	certPathSignAlias = new Location(cdf.getCertificatePath(i));
@@ -559,7 +567,8 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     public RSAPublicKey getIccCertPublicKey() throws IOException {
         final byte[] iccCertEncoded;
         try {
-        	selectMasterFile();
+					selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+        	//selectMasterFile();
             iccCertEncoded = selectFileByIdAndRead(CERT_ICC_FILE_ID);
         }
         catch (final ApduConnectionException e) {
@@ -1079,7 +1088,8 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
     private X509Certificate loadCertificate(final Location location, final Integer fileSize) throws IOException,
 		Iso7816FourCardException,
 		CertificateException {
-    	selectMasterFile();
+			selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+    	//selectMasterFile();
         final byte[] certEncoded = selectFileByLocationAndRead(location, fileSize);
         return CompressionUtils.getCertificateFromCompressedOrNotData(
     		certEncoded,
@@ -1260,7 +1270,12 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 	 * @throws FileNotFoundException Si no se encuentra el fichero que contiene el IDESP.
 	 * @throws IOException Si no se puede conectar con la tarjeta. */
 	public String getIdesp() throws Iso7816FourCardException, IOException {
-		return new String(selectFileByLocationAndRead(IDESP_LOCATION));
+			selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+			int fileLength = selectFileById(new byte[] { (byte)0x00, (byte)0x06 });
+			LOGGER.info("IDESP - Tamaño reportado por SELECT: " + fileLength);
+
+			return new String (readBinaryComplete(fileLength));
+		//return new String(selectFileByLocationAndRead(IDESP_LOCATION));
 	}
 
 	/** Indica si este DNIe necesita validar el PIN para tener acceso a los certificados.
@@ -1301,12 +1316,14 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
 	}
 
 	public void callAID() throws Iso7816FourCardException, ApduConnectionException {
-        byte[] selectAidCommand = {
-                (byte) 0x00, (byte) 0xA4, (byte) 0x04, (byte) 0x00, (byte) 0x07, // Header
-                (byte) 0xA0, (byte) 0x00, (byte) 0x00, (byte) 0x02, (byte) 0x47, (byte) 0x10, (byte) 0x01 // AID
-        };
-        LOGGER.info("Sending SELECT AID: " + HexUtils.hexify(selectAidCommand, false));
-        CommandApdu selectCmd = new CommandApdu(selectAidCommand);
+				if (aidCommand == null) {
+					aidCommand = new byte[] {
+						(byte) 0x00, (byte) 0xA4, (byte) 0x04, (byte) 0x00, (byte) 0x07, // Header
+						(byte) 0xA0, (byte) 0x00, (byte) 0x00, (byte) 0x02, (byte) 0x47, (byte) 0x10, (byte) 0x01 // AID
+					};
+				}
+        LOGGER.info("Sending SELECT AID: " + HexUtils.hexify(aidCommand, false));
+        CommandApdu selectCmd = new CommandApdu(aidCommand);
         ResponseApdu selectResp = rawConnection.transmit(selectCmd);
         if (!selectResp.isOk()) {
             throw new Iso7816FourCardException(
@@ -1316,4 +1333,8 @@ public class Dnie extends AbstractIso7816EightCard implements Dni, Cwa14890Card 
             );
         }
     }
+
+		public void setAidCommand(byte[] aidCommand) {
+			this.aidCommand = aidCommand;
+		}
 }

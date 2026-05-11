@@ -21,7 +21,7 @@ public final class AndroidNfcConnection extends AbstractApduConnectionIso7816 {
     private static final boolean DEBUG = false;
     private static final String TAG = AndroidNfcConnection.class.getSimpleName();
 
-    private static final int ISODEP_TIMEOUT = 3000;
+    private static final int ISODEP_TIMEOUT = 15000;
 
     /** Version code de Android P. */
     private static final int ANDROID_P = 28;

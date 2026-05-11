@@ -8,6 +8,7 @@ import java.util.logging.Logger;
 
 import es.gob.jmulticard.CryptoHelper;
 import es.gob.jmulticard.HexUtils;
+import es.gob.jmulticard.SignatureValidationPolicy;
 import es.gob.jmulticard.asn1.Asn1Exception;
 import es.gob.jmulticard.asn1.DecoderObject;
 import es.gob.jmulticard.asn1.Tlv;
@@ -44,7 +45,7 @@ public final class Sod extends DecoderObject {
 	 * @throws CertificateException Si hay problemas relacionados con los certificados de firma.
 	 * @throws IOException Si los datos proporcionados no son una firma CMS/PKCS#7 bien formada.
 	 * @throws Asn1Exception Si el SOD no contiene un <code>LDSSecurityObject</code> v&aacute;lido. */
-	public void validateSignature() throws TlvException,
+	public void validateSignature(SignatureValidationPolicy policy) throws TlvException,
 	                                       SignatureException,
 	                                       CertificateException,
 	                                       IOException,
@@ -52,7 +53,7 @@ public final class Sod extends DecoderObject {
 
 		final Tlv tlv = new Tlv(getRawDerValue());
 
-		this.certificateChain = this.cryptoHelper.validateCmsSignature(tlv.getValue());
+		this.certificateChain = this.cryptoHelper.validateCmsSignature(tlv.getValue(), policy);
 
 		this.ldsSecurityObjectBytes = this.cryptoHelper.getCmsSignatureSignedContent(tlv.getValue());
 		this.ldsSecurityObject = new LdsSecurityObject();
@@ -73,13 +74,13 @@ public final class Sod extends DecoderObject {
 	 * @throws SignatureException Si la firma del SOD es inv&aacute;lida o presenta problemas.
 	 * @throws TlvException Si el SOD del documento no es un TLV v&aacute;lido.
 	 * @throws Asn1Exception Si el SOD no contiene un <code>LDSSecurityObject</code> v&aacute;lido. */
-	public byte[] getLdsSecurityObjectBytes() throws SignatureException,
+	public byte[] getLdsSecurityObjectBytes(SignatureValidationPolicy policy) throws SignatureException,
 	                                                 CertificateException,
 	                                                 TlvException,
 	                                                 IOException,
 	                                                 Asn1Exception {
 		if (this.ldsSecurityObjectBytes == null) {
-			validateSignature();
+			validateSignature(policy);
 		}
 		return this.ldsSecurityObjectBytes;
 	}
@@ -94,9 +95,9 @@ public final class Sod extends DecoderObject {
 	 *         <code>LDSSecurityObject</code> v&aacute;lido.
 	 * @throws CertificateException Si los certificados de firma del SOD presentan problemas.
 	 * @throws SignatureException Si la firma del SOD es inv&aacute;lida o presenta problemas. */
-	public LdsSecurityObject getLdsSecurityObject() throws TlvException, Asn1Exception, IOException, SignatureException, CertificateException {
+	public LdsSecurityObject getLdsSecurityObject(SignatureValidationPolicy policy) throws TlvException, Asn1Exception, IOException, SignatureException, CertificateException {
 		if (this.ldsSecurityObject == null) {
-			validateSignature();
+			validateSignature(policy);
 		}
 		return this.ldsSecurityObject;
 	}
@@ -110,9 +111,9 @@ public final class Sod extends DecoderObject {
 	 * @throws IOException Si se encunetra alguna estructura ASN&#46;1 mal formada.
 	 * @throws CertificateException Si los certificados de firma del SOD presentan problemas.
 	 * @throws SignatureException Si la firma del SOD es inv&aacute;lida o presenta problemas. */
-	public X509Certificate[] getCertificateChain() throws TlvException, Asn1Exception, SignatureException, CertificateException, IOException {
+	public X509Certificate[] getCertificateChain(SignatureValidationPolicy policy) throws TlvException, Asn1Exception, SignatureException, CertificateException, IOException {
 		if (this.certificateChain == null) {
-			validateSignature();
+			validateSignature(policy);
 		}
 		return this.certificateChain.clone();
 	}
@@ -122,7 +123,7 @@ public final class Sod extends DecoderObject {
 		final StringBuilder sb = new StringBuilder("SOD ICAO"); //$NON-NLS-1$
 		try {
 			sb.append(
-				"\nFirmado por: " + getCertificateChain()[0].getSubjectX500Principal() //$NON-NLS-1$
+				"\nFirmado por: " + getCertificateChain(SignatureValidationPolicy.ALLOW_EXPIRED_SIGNER_CERT)[0].getSubjectX500Principal() //$NON-NLS-1$
 			);
 		}
 		catch (final Exception e) {

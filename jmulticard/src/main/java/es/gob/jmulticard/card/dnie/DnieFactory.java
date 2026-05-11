@@ -15,7 +15,6 @@ import es.gob.jmulticard.connection.ApduConnection;
 import es.gob.jmulticard.connection.ApduConnectionException;
 import es.gob.jmulticard.connection.CardNotPresentException;
 import es.gob.jmulticard.connection.NoReadersFoundException;
-import es.gob.jmulticard.connection.ca.ChipAuthentication;
 
 /** Factor&iacute;a para la obtenci&oacute;n de DNIe.
  * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s. */
@@ -107,34 +106,6 @@ public final class DnieFactory {
 											                          BurnedDnieCardException,
 											                          ApduConnectionException,
 																								IcaoException {
-		return getDnie(conn, pwc, cryptoHelper, ch, null, true);
-	}
-
-	/** Obtiene la clase de DNIe apropiada (seg&uacute;n su ATR).
-	 * @param conn Conexi&oacute;n con el lector de tarjetas.
-	 * @param pwc <i>PasswordCallback</i> para la obtenci&oacute;n del PIN.
-	 * @param cryptoHelper Clase de apoyo para operaciones criptogr&aacute;ficas.
-	 * @param ch Gestor de <i>callbacks</i> para la obtenci&oacute;n de datos adicionales por parte
-	 *           del titular del DNIe (como el PIN y el CAN).
-	 * @param ca Se incluye el manejador para inicializar los valores del ChipAuthentication en el caso en el que se requiera.
-	 * @param loadCertsAndKeys Si se indica <code>true</code>, se cargan las referencias a
-     *                         las claves privadas y a los certificados, mientras que si se
-     *                         indica <code>false</code>, no se cargan, permitiendo la
-     *                         instanciaci&oacute;n de un DNIe sin capacidades de firma o
-     *                         autenticaci&oacute;n con certificados.
-	 * @return Clase de DNIe apropiada (seg&uacute;n su ATR).
-	 * @throws InvalidCardException Si se ha detectado al menos una tarjeta, pero no es un DNIe.
-	 * @throws BurnedDnieCardException Si se ha detectado un DNIe con su memoria vol&aacute;til borrada.
-	 * @throws ApduConnectionException Si no se puede conectar con el lector de tarjetas. */
-	public static Dnie getDnie(final ApduConnection conn,
-			                   final PasswordCallback pwc,
-			                   final CryptoHelper cryptoHelper,
-			                   final CallbackHandler ch,
-												 final ChipAuthentication ca,
-			              	   final boolean loadCertsAndKeys) throws InvalidCardException,
-											                          BurnedDnieCardException,
-											                          ApduConnectionException,
-																								IcaoException {
 		if (conn == null) {
 			throw new IllegalArgumentException(
 				"La conexion no puede ser nula" //$NON-NLS-1$
@@ -164,7 +135,7 @@ public final class DnieFactory {
 				try {
 					LOGGER.info("Detectado DNIe 3.0 o 4.0 por NFC"); //$NON-NLS-1$
 					LOGGER.info(new DnieAtr(actualAtr).toString());
-					return new DnieNfc(conn, pwc, cryptoHelper, ch, ca, loadCertsAndKeys);
+					return new DnieNfc(conn, pwc, cryptoHelper, ch, loadCertsAndKeys);
 				}
 				catch (final IcaoException e) {
 					throw e;

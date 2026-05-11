@@ -51,6 +51,7 @@ import javax.security.auth.callback.PasswordCallback;
 
 import es.gob.jmulticard.CryptoHelper;
 import es.gob.jmulticard.HexUtils;
+import es.gob.jmulticard.SignatureValidationPolicy;
 import es.gob.jmulticard.asn1.Asn1Exception;
 import es.gob.jmulticard.asn1.TlvException;
 import es.gob.jmulticard.asn1.icao.Com;
@@ -74,7 +75,6 @@ import es.gob.jmulticard.card.iso7816four.RequiredSecurityStateNotSatisfiedExcep
 import es.gob.jmulticard.connection.ApduConnection;
 import es.gob.jmulticard.connection.ApduConnectionException;
 import es.gob.jmulticard.connection.bac.BacConnection;
-import es.gob.jmulticard.connection.ca.ChipAuthentication;
 import es.gob.jmulticard.connection.cwa14890.Cwa14890OneV2Connection;
 
 /** DNI Electr&oacute;nico versi&oacute;n 3&#46;0.
@@ -83,15 +83,18 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
     private transient String idesp = null;
 
-	//*************************************************************************
-	//************************ CONSTRUCTORES **********************************
+		private transient Mrz cachedDg1 = null;
+
+		private transient Com cachedCom = null;
+
+		private transient byte[] cachedDG14 = null;
+
     /** Construye una clase que representa un DNIe 3&#46;0.
      * @param conn Conexi&oacute;n con la tarjeta.
      * @param pwc <i>PasswordCallback</i> para obtener el PIN del DNIe.
      * @param cryptoHlpr Funcionalidades criptogr&aacute;ficas de utilidad que pueden
      *                   variar entre m&aacute;quinas virtuales.
      * @param ch Gestor de las <i>Callbacks</i> (PIN, confirmaci&oacute;n, etc.).
-		 * @param ca Se incluye el manejador para inicializar los valores del ChipAuthentication en el caso en el que se requiera.
      * @param loadCertsAndKeys Si se indica <code>true</code>, se cargan las referencias a
      *                         las claves privadas y a los certificados mientras que, si se
      *                         indica <code>false</code>, no se cargan, permitiendo la
@@ -103,76 +106,9 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
     	            final PasswordCallback pwc,
     	            final CryptoHelper cryptoHlpr,
     	            final CallbackHandler ch,
-									final ChipAuthentication ca,
     	            final boolean loadCertsAndKeys) throws ApduConnectionException {
 		  super(conn, pwc, cryptoHlpr, ch, loadCertsAndKeys);
-			boolean certificatePathsLoaded = false;
       this.rawConnection = conn;
-      if (loadCertsAndKeys && !(rawConnection instanceof BacConnection)) {
-        try {
-					// Intenta obtener los datos del DG1 (Data Group 1), que normalmente contiene la
-					// MRZ (Machine Readable Zone) de un documento de identidad/pasaporte.
-					Mrz mrz = getDg1();
-					// Verifica si la MRZ se obtuvo correctamente (no es null),
-					// si el tipo de documento es "ID" (identificación),
-					// y si el emisor del documento, convertido a minúsculas, es "españa".
-					// Esta condición es específica para documentos de identidad españoles.
-					if (mrz != null && mrz.getDocType().equals("ID") && mrz.getIssuer().toLowerCase().equals("españa")) {
-						LOGGER.info("Se cargan los certificados");
-						loadCertificatesPaths();
-						certificatePathsLoaded = true;
-					}
-				}
-        catch (final CryptoCardException e) {
-					throw new ApduConnectionException(
-					"Error cargando los certificados del DNIe 3.0/4.0", e //$NON-NLS-1$
-					);
-				}
-				catch (final IOException e) {
-					throw new RuntimeException(e);
-				}
-      }
-
-    	// Identificamos numero de soporte (IDESP)
-			if (certificatePathsLoaded) {
-				try {
-					this.idesp = getIdesp();
-				}
-				catch (final Exception e1) {
-					LOGGER.warning("No se ha podido leer el IDESP del DNIe: " + e1); //$NON-NLS-1$
-					this.idesp = null;
-				}
-			}
-
-			// Después de la posible carga de certificados (o independientemente de ella),
-			// se verifica si el objeto ca está instanciado. En caso de estarlo se inicializan sus propiedades
-			if (ca != null) {
-				// Esto es un paso de seguridad para verificar la autenticidad del chip del documento.
-				ca.setConnection(rawConnection);
-				ca.setCryptoHlpr(cryptoHlpr);
-			}
-		}
-
-    /** Construye una clase que representa un DNIe 3&#46;0.
-     * @param conn Conexi&oacute;n con la tarjeta.
-     * @param pwc <i>PasswordCallback</i> para obtener el PIN del DNIe.
-     * @param cryptoHlpr Funcionalidades criptogr&aacute;ficas de utilidad que pueden
-     *                   variar entre m&aacute;quinas virtuales.
-     * @param ch Gestor de las <i>Callbacks</i> (PIN, confirmaci&oacute;n, etc.).
-     * @param loadCertsAndKeys Si se indica <code>true</code>, se cargan las referencias a
-     *                         las claves privadas y a los certificados mientras que, si se
-     *                         indica <code>false</code>, no se cargan, permitiendo la
-     *                         instanciaci&oacute;n de un DNIe sin capacidades de firma o
-     *                         autenticaci&oacute;n con certificados.
-     * @throws ApduConnectionException Si la conexi&oacute;n con la tarjeta se proporciona
-     *                                 cerrada y no es posible abrirla.*/
-    protected Dnie3(final ApduConnection conn,
-    	            final PasswordCallback pwc,
-    	            final CryptoHelper cryptoHlpr,
-    	            final CallbackHandler ch,
-    	            final boolean loadCertsAndKeys) throws ApduConnectionException {
-
-				this(conn, pwc, cryptoHlpr, ch, null, loadCertsAndKeys);
     }
 
     /** Construye una clase que representa un DNIe 3&#46;0.
@@ -246,7 +182,8 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 			);
 
 	        try {
-	        	selectMasterFile();
+						selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+//	        	selectMasterFile();
 	        }
 	        catch (final Exception e) {
 	        	LOGGER.warning(
@@ -281,7 +218,8 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
         }
 
 		try {
-			selectMasterFile();
+			selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+			// selectMasterFile();
 		}
 		catch (final Exception e) {
 			throw new CryptoCardException(
@@ -340,7 +278,8 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		);
 
 		try {
-			selectMasterFile();
+			selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+			//selectMasterFile();
 		}
 		catch (final Exception e) {
 			throw new CryptoCardException(
@@ -370,7 +309,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 	//*************** METODOS HEREDADOS DE ICAO MRTD LDS1 *********************
 
 	@Override
-	public X509Certificate[] checkSecurityObjects() throws IOException,
+	public X509Certificate[] checkSecurityObjects(SignatureValidationPolicy policy) throws IOException,
 	                                                       InvalidSecurityObjectException,
 	                                                       TlvException,
 	                                                       Asn1Exception,
@@ -378,8 +317,8 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 	                                                       CertificateException {
 		openSecureChannelIfNotAlreadyOpened(false);
 		final Sod sod = getSod();
-		sod.validateSignature();
-		final LdsSecurityObject ldsSecurityObject = sod.getLdsSecurityObject();
+		sod.validateSignature(policy);
+		final LdsSecurityObject ldsSecurityObject = sod.getLdsSecurityObject(policy);
 
 		openSecureChannelIfNotAlreadyOpened(false);
 
@@ -465,7 +404,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		}
 
 		// Llegados aqui, todas las huellas coinciden
-		return sod.getCertificateChain();
+		return sod.getCertificateChain(policy);
 	}
 
     @Override
@@ -496,22 +435,26 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
     @Override
 	public Mrz getDg1() throws IOException {
-		try {
-			if (rawConnection instanceof BacConnection){
-				return getDg1ByFileId();
-			// 	byte[] dg1Data = readBinaryBySFI(0x01, 0, 256);
-    	// 	return new Dnie3Dg01Mrz(dg1Data);
+//		try {
+			if (cachedDg1 == null) {
+//				if (rawConnection instanceof BacConnection){
+					cachedDg1 = getDg1ByFileId();
+				// 	byte[] dg1Data = readBinaryBySFI(0x01, 0, 256);
+				// 	return new Dnie3Dg01Mrz(dg1Data);
+//				}
+//				cachedDg1 = new Dnie3Dg01Mrz(
+//						selectFileByLocationAndRead(FILE_DG01_LOCATION)
+//				);
 			}
-			return new Dnie3Dg01Mrz(
-					selectFileByLocationAndRead(FILE_DG01_LOCATION)
-			);
-		}
-		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+			return cachedDg1;
+//		}
+/* 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
     		throw new FileNotFoundException("DG1 no encontrado: " + e); //$NON-NLS-1$
     }
 			catch (final Iso7816FourCardException e) {
 				throw new CryptoCardException("Error leyendo el DG1", e); //$NON-NLS-1$
 		}
+				*/
 	}
 
 	@Override
@@ -540,14 +483,16 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
     @Override
 	public SubjectFacePhoto getDg2() throws IOException {
-    final SubjectFacePhoto ret = new SubjectFacePhoto();
+/*     final SubjectFacePhoto ret = new SubjectFacePhoto();
 		try {
 			if (rawConnection instanceof BacConnection){
+			*/
 				return getDg2ByFileId();
     	// 	byte[] dg2Data = readBinaryBySFI(0x02, 0, 4096); // DG2 suele ser más grande
-    	// 	ret.setDerValue(dg2Data);
-			// 	return ret;
-			// }
+			/*
+    	ret.setDerValue(dg2Data);
+			 	return ret;
+			 }
 			}
 			ret.setDerValue(selectFileByLocationAndRead(FILE_DG02_LOCATION));
 			return ret;
@@ -558,7 +503,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
     	}
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el DG2", e); //$NON-NLS-1$
-		}
+		}*/
 	}
 
 	@Override
@@ -631,10 +576,13 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
     @Override
 	public SubjectSignaturePhoto getDg7() throws IOException {
-    	final SubjectSignaturePhoto ret = new SubjectSignaturePhoto();
+		/*
+    final SubjectSignaturePhoto ret = new SubjectSignaturePhoto();
 		try {
 			if (rawConnection instanceof BacConnection) {
+				*/
 				return getDg7ByFileId();
+				/*
 			}
 			ret.setDerValue(selectFileByLocationAndRead(FILE_DG07_LOCATION));
 			return ret;
@@ -645,6 +593,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el DG7", e); //$NON-NLS-1$
 		}
+			*/
 	}
 
 	@Override
@@ -675,9 +624,12 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
 	@Override
 	public byte[] getDg11() throws IOException {
+/*
 		try {
 			if (rawConnection instanceof BacConnection) {
+			*/
 				return getDg11ByFileId();
+				/*
 			}
 			return selectFileByLocationAndRead(FILE_DG11_LOCATION);
 		}
@@ -686,7 +638,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
     	}
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG11", e); //$NON-NLS-1$
-		}
+		}*/
 	}
 	@Override
 	public byte[] getDg11ByFileId() throws IOException {
@@ -745,10 +697,11 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
   @Override
 	public OptionalDetails getDg13() throws IOException {
-		try {
+/* 		try {
 			if (rawConnection instanceof BacConnection) {
+			*/
 				return getDg13ByFileId();
-			}
+/* 			}
 			final OptionalDetails ret = new OptionalDetailsDnie3();
 			ret.setDerValue(
 				selectFileByLocationAndRead(FILE_DG13_LOCATION)
@@ -761,6 +714,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
 			throw new CryptoCardException("Error leyendo el DG13", e); //$NON-NLS-1$
 		}
+			*/
 	}
 
 	@Override
@@ -792,10 +746,15 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
   @Override
 	public byte[] getDg14() throws IOException {
+/*
 		try {
 			if (rawConnection instanceof BacConnection) {
-				return getDg14ByFileId();
+			*/
+			if (cachedDG14 == null) {
+				cachedDG14 = getDg14ByFileId();
 			}
+			return cachedDG14;
+/* 			}
 			return selectFileByLocationAndRead(FILE_DG14_LOCATION);
 		}
     catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
@@ -804,6 +763,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 		catch (final Iso7816FourCardException e) {
 			throw new CryptoCardException("Error leyendo el DG14", e); //$NON-NLS-1$
 		}
+		*/
 	}
 
 	@Override
@@ -835,10 +795,13 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
   @Override
 	public Sod getSod() throws IOException {
-    final Sod sod = new Sod(this.getCryptoHelper());
+/*
+		final Sod sod = new Sod(this.getCryptoHelper());
     try {
 			if (rawConnection instanceof BacConnection) {
+			*/
 				return getSodByFileId();
+/*
 			}
 			sod.setDerValue(
 					selectFileByLocationAndRead(FILE_SOD_LOCATION)
@@ -850,6 +813,7 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 				"No se puede crear un SOD a partir del contenido del fichero", e //$NON-NLS-1$
 			);
 		}
+			*/
 	}
 
 	@Override
@@ -880,45 +844,57 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 
   @Override
 	public Com getCom() throws IOException {
-		try {
-			if (rawConnection instanceof BacConnection) {
-				return getComByFileId();
-			// 	// byte[] comData = readBinaryBySFI(0x1E, 0, 256);
-    	// 	// final Com com = new Com();
-			// 	// com.setDerValue(comData);
-			// 	// return com;
+//		try {
+//			if (rawConnection instanceof BacConnection) {
+			if (cachedCom == null) {
+//				if (rawConnection instanceof BacConnection){
+					cachedCom = getComByFileId();
+				// 	byte[] dg1Data = readBinaryBySFI(0x01, 0, 256);
+				// 	return new Dnie3Dg01Mrz(dg1Data);
+//				}
+//				cachedDg1 = new Dnie3Dg01Mrz(
+//						selectFileByLocationAndRead(FILE_DG01_LOCATION)
+//				);
 			}
-			final Com com = new Com();
-			com.setDerValue(
-					selectFileByLocationAndRead(FILE_COM_LOCATION)
-			);
-			return com;
-		}
-    catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
-    		throw (IOException) new FileNotFoundException("COM no encontrado").initCause(e); //$NON-NLS-1$
-    }
-		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
-			throw new CryptoCardException("Error leyendo el 'Common Data' (COM)", e); //$NON-NLS-1$
-		}
+			return cachedCom;
+// 			}
+// 		final Com com = new Com();
+//			com.setDerValue(
+//					selectFileByLocationAndRead(FILE_COM_LOCATION)
+//			);
+//			return com;
+//		}
+//     catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+//    		throw (IOException) new FileNotFoundException("COM no encontrado").initCause(e); //$NON-NLS-1$
+//    }
+//		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
+//			throw new CryptoCardException("Error leyendo el 'Common Data' (COM)", e); //$NON-NLS-1$
+//		}
+
 	}
 
 	@Override
 	public Com getComByFileId() throws IOException {
 		try {
+			LOGGER.info("Leyendo COM del chip por ID de fichero");
 			final Com com = new Com();
 			byte[] comFile = COM_FILE_ID_TAG;
 
 			// SELECT FILE y obtener tamaño
 			int fileLength = selectFileById(comFile);
-			LOGGER.info("COM - Tamaño reportado por SELECT: " + fileLength);
+//			LOGGER.info("COM - Tamaño reportado por SELECT: " + fileLength);
+			LOGGER.info("COM - Tamaño reportado por SELECT");
 
 			byte[] comBytes;
 			// if (fileLength <= 0) {
 			// 		LOGGER.warning("SELECT FILE reportó tamaño inválido para COM, intentando lectura incremental");
 			// 		comBytes = readBinaryIncrementalWithPadding();
 			// } else {
+			LOGGER.info("COM - Leyendo binario completo");
 			comBytes = readBinaryComplete(fileLength);
 			// }
+
+			LOGGER.info("COM - Asignando valor DER");
 
 			com.setDerValue(comBytes);
 			return com;
@@ -928,9 +904,11 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 			// return com;
 		}
 		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+			LOGGER.warning("COM no encontrado por ID de fichero, intentando por ubicación"); //$NON-NLS-1$
 			throw (IOException) new FileNotFoundException("COM no encontrado").initCause(e); //$NON-NLS-1$
 		}
 		catch (final Iso7816FourCardException | TlvException | Asn1Exception e) {
+			LOGGER.severe("Error leyendo el 'Common Data' (COM)"); //$NON-NLS-1$
 			throw new CryptoCardException("Error leyendo el 'Common Data' (COM)", e); //$NON-NLS-1$
 		}
 	}
@@ -1160,18 +1138,18 @@ public class Dnie3 extends Dnie implements MrtdLds1 {
 			"Este MRTD no tiene DG15" //$NON-NLS-1$
 		);*/
 
-		try {
-			if (rawConnection instanceof BacConnection) {
+//		try {
+//			if (rawConnection instanceof BacConnection) {
 				return getDg15ByFileId();
-			}
-			return selectFileByLocationAndRead(FILE_DG15_LOCATION);
-		}
-		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
-			throw (IOException) new FileNotFoundException("DG15 no encontrado").initCause(e); //$NON-NLS-1$
-		}
-		catch (final Iso7816FourCardException e) {
-			throw new CryptoCardException("Error leyendo el DG15", e); //$NON-NLS-1$
-		}
+//			}
+//			return selectFileByLocationAndRead(FILE_DG15_LOCATION);
+//		}
+//		catch(final es.gob.jmulticard.card.iso7816four.FileNotFoundException e) {
+//			throw (IOException) new FileNotFoundException("DG15 no encontrado").initCause(e); //$NON-NLS-1$
+//		}
+//		catch (final Iso7816FourCardException e) {
+//			throw new CryptoCardException("Error leyendo el DG15", e); //$NON-NLS-1$
+//		}
   }
 
 	@Override

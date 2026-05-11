@@ -80,6 +80,7 @@ import org.bouncycastle.util.Store;
 
 import es.gob.jmulticard.CryptoHelper;
 import es.gob.jmulticard.HexUtils;
+import es.gob.jmulticard.SignatureValidationPolicy;
 
 /** Funcionalidades criptogr&aacute;ficas de utilidad implementadas mediante BouncyCastle.
  * Contiene c&oacute;digo basado en el trabajo del <i>JMRTD team</i>, bajo licencia
@@ -631,7 +632,7 @@ public final class BcCryptoHelper extends CryptoHelper {
 	}
 
 	@Override
-	public X509Certificate[] validateCmsSignature(final byte[] signedDataBytes) throws SignatureException,
+	public X509Certificate[] validateCmsSignature(final byte[] signedDataBytes, SignatureValidationPolicy policy) throws SignatureException,
 	                                                                                   IOException,
 	                                                                                   CertificateException {
 		final CMSSignedData cmsSignedData;
@@ -660,9 +661,13 @@ public final class BcCryptoHelper extends CryptoHelper {
 				cert.checkValidity();
 			}
             catch (final CertificateExpiredException | CertificateNotYetValidException e1) {
-            	throw new CertificateException(
+							if (policy == SignatureValidationPolicy.ALLOW_EXPIRED_SIGNER_CERT) {
+            LOGGER.warning("SOD signer cert fuera de vigencia; se continúa por política ALLOW_EXPIRED_SIGNER_CERT");
+        } else {
+					throw new CertificateException(
 					"El SignedData contiene un certificado fuera de su periodo temporal de validez", e1 //$NON-NLS-1$
-				);
+					);
+				}
 			}
 			try {
 				if (

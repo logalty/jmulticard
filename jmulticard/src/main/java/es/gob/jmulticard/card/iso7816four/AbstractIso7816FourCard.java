@@ -202,84 +202,133 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      * @return APDU de respuesta.
      * @throws ApduConnectionException Si hay problemas en el env&iacute;o de la APDU.
      * @throws IOException Si hay problemas en el <i>buffer</i> de lectura. */
-public byte[] readBinaryComplete(int len) throws IOException {
-    int off = 0;
-    if (len == 0) {
-        try {
-            TlvHeaderInfo headerInfo = parseFileHeader((byte) 4);
-            if (headerInfo == null) {
-                LOGGER.warning("No se pudo parsear cabecera TLV, usando lectura incremental");
-                return readBinaryIncremental();
-            }
-            len = headerInfo.valueLength + headerInfo.headerLength;
-            LOGGER.info("Tamaño total calculado desde cabecera TLV: " + len +
-                       " (header=" + headerInfo.headerLength + " + value=" + headerInfo.valueLength + ")");
-        } catch (final RequiredSecurityStateNotSatisfiedException e) {
-            throw new IOException("Condicion de seguridad no satisfecha al leer el fichero", e);
-        } catch (final OffsetOutsideEfException e) {
-            throw new IOException("Se ha intentado una lectura fuera de los limites del fichero", e);
-        } catch (final ApduConnectionException e) {
-            throw new IOException("Error de conexion al leer el fichero", e);
-        } catch (final Iso7816FourCardException e) {
-            throw new IOException("Error leyendo fichero", e);
-        }
-    }
-
-    ResponseApdu readedResponse;
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-
-    while (off < len) {
-        final byte msbOffset = (byte)(off >> 8);
-        final byte lsbOffset = (byte)(off & 0xFF);
-        final int left = len - off;
-
-        // Calcular cuántos bytes leer en este chunk
-        // Algunos chips (pasaportes argentinos) son muy estrictos con el tamaño
-        // Usar bloques más pequeños para máxima compatibilidad: 96 bytes
-        final int requestedBytes = Math.min(left, 96);
-
-        try {
-            readedResponse = readBinary(msbOffset, lsbOffset, (byte) requestedBytes);
-        }
-        catch(final OffsetOutsideEfException e) {
-            LOGGER.warning("Se ha intentado una lectura fuera de los limites del fichero, se devolvera lo leido hasta ahora: " + e);
-            return out.toByteArray();
-        }
-        catch (final RequiredSecurityStateNotSatisfiedException e) {
-            throw new IOException("Condicion de seguridad no satisfecha", e);
-        }
-
-        final boolean eofReached = SW_EOF_REACHED.equals(readedResponse.getStatusWord());
-
-        if (!readedResponse.isOk() && !eofReached) {
-            throw new IOException("Error leyendo el binario (" + readedResponse.getStatusWord() + ")");
-        }
-
-        final byte[] data = readedResponse.getData();
-        if (data != null && data.length > 0) {
-            // Solo escribir los bytes necesarios, descartando padding del cifrado en bloques
-            int bytesToWrite = Math.min(data.length, len - off);
-            out.write(data, 0, bytesToWrite);
-            off += bytesToWrite;
-
-            if (DEBUG && data.length > bytesToWrite) {
-                LOGGER.info("Descartados " + (data.length - bytesToWrite) +
-                        " bytes de padding del cifrado en bloques");
+    public byte[] readBinaryComplete(int len) throws IOException {
+        int off = 0;
+        if (len == 0) {
+            try {
+                TlvHeaderInfo headerInfo = parseFileHeader((byte) 4);
+                if (headerInfo == null) {
+                    LOGGER.warning("No se pudo parsear cabecera TLV, usando lectura incremental");
+                    return readBinaryIncremental();
+                }
+                len = headerInfo.valueLength + headerInfo.headerLength;
+                LOGGER.info("Tamaño total calculado desde cabecera TLV: " + len +
+                        " (header=" + headerInfo.headerLength + " + value=" + headerInfo.valueLength + ")");
+            } catch (final RequiredSecurityStateNotSatisfiedException e) {
+                throw new IOException("Condicion de seguridad no satisfecha al leer el fichero", e);
+            } catch (final OffsetOutsideEfException e) {
+                throw new IOException("Se ha intentado una lectura fuera de los limites del fichero", e);
+            } catch (final ApduConnectionException e) {
+                throw new IOException("Error de conexion al leer el fichero", e);
+            } catch (final Iso7816FourCardException e) {
+                throw new IOException("Error leyendo fichero", e);
             }
         }
 
-        if (eofReached || data == null || data.length == 0) {
-            break;
+        ResponseApdu readedResponse;
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int readChunkSize = 96; // Tamaño inicial de chunk. Se reduce dinámicamente si el chip responde 6282 sin datos.
+
+        while (off < len) {
+            final byte msbOffset = (byte)(off >> 8);
+            final byte lsbOffset = (byte)(off & 0xFF);
+            final int left = len - off;
+            final int requestedBytes = Math.min(left, readChunkSize);
+
+            try {
+                readedResponse = readBinary(msbOffset, lsbOffset, (byte) requestedBytes);
+            } catch (final OffsetOutsideEfException e) {
+                LOGGER.warning("Lectura fuera de límites en offset=" + off + ", devolviendo lo leído");
+                return out.toByteArray();
+            } catch (final RequiredSecurityStateNotSatisfiedException e) {
+                throw new IOException("Condición de seguridad no satisfecha", e);
+            } catch (final ApduConnectionException e) {
+                // Puede ocurrir si:
+                // 1) El chip responde sin SM wrapping (ej: 6282 directo sin DO87/DO99/DO8E)
+                //    → sm.unwrap() falla con SecureMessagingException
+                // 2) Error real de transporte (TagLost, timeout)
+                //
+                // En caso 1: reducir chunk puede funcionar si el chip tolera Le menor.
+                // En caso 2: si el SSC se desincronizó (SM activo), la sesión está perdida.
+                //
+                // Distinguimos: si el error contiene "SecureMessaging" o "checksum",
+                // no tiene sentido reducir chunk — la sesión SM está rota.
+                final String errMsg = e.getMessage() != null ? e.getMessage() : "";
+                final boolean smCorrupted = errMsg.contains("SecureMessaging")
+                        || errMsg.contains("checksum")
+                        || errMsg.contains("cifrar")
+                        || errMsg.contains("descifrar");
+
+                if (smCorrupted) {
+                    LOGGER.severe("Error de Secure Messaging en offset=" + off
+                            + ". SSC posiblemente desincronizado. Devolviendo datos parciales.");
+                    break;
+                }
+
+                if (readChunkSize > 32 && off < len) {
+                    readChunkSize = readChunkSize / 2;
+                    LOGGER.warning("Error de conexión en offset=" + off
+                            + " (" + errMsg + "), reduciendo chunk a " + readChunkSize);
+                    continue;
+                }
+                LOGGER.warning("Error de conexión irrecuperable en offset=" + off + ", devolviendo lo leído: " + errMsg);
+                break;
+            }
+
+            final boolean eofReached = SW_EOF_REACHED.equals(readedResponse.getStatusWord());
+
+            if (!readedResponse.isOk() && !eofReached) {
+                throw new IOException("Error leyendo binario (" + readedResponse.getStatusWord() + ")");
+            }
+
+            final byte[] data = readedResponse.getData();
+
+            // PRIMERO escribir los datos recibidos (si los hay), LUEGO comprobar EOF.
+            // SW 6282 = "end of file reached before Le bytes available" pero la respuesta
+            // SÍ contiene los datos que el chip pudo leer (los bytes restantes del fichero).
+            // No descartar datos válidos.
+            if (data != null && data.length > 0) {
+                int bytesToWrite = Math.min(data.length, len - off);
+                out.write(data, 0, bytesToWrite);
+                off += bytesToWrite;
+            }
+
+            // Si recibimos EOF sin datos y aún no hemos leído todo, intentar
+            // con un chunk más pequeño (el chip puede rechazar Le > bytes restantes
+            // en algunos modelos, especialmente con Secure Messaging activo).
+            if (eofReached && (data == null || data.length == 0) && off < len) {
+                if (readChunkSize > 32) {
+                    readChunkSize = readChunkSize / 2;
+                    LOGGER.info("EOF sin datos en offset=" + off + ", reduciendo chunk a " + readChunkSize + " bytes");
+                    continue; // Reintentar con chunk más pequeño
+                }
+                LOGGER.warning("EOF sin datos en offset=" + off + " con chunk mínimo, deteniendo lectura");
+                break;
+            }
+
+            // EOF con datos: ya escribimos los datos, fin del fichero
+            if (eofReached) {
+                break;
+            }
+
+            // Respuesta vacía sin EOF: fin inesperado
+            if (data == null || data.length == 0) {
+                break;
+            }
+
+            // ELIMINADO: if (data.length < requestedBytes) break;
+            // Con Secure Messaging (PACE/BAC), el descifrado AES-CBC puede devolver
+            // bloques de tamaño diferente al solicitado. La única condición de EOF
+            // fiable es: off >= len, SW=6282 (EOF), o data vacía.
         }
 
-        // Si recibimos menos de lo pedido, hemos llegado al final
-        if (data.length < requestedBytes) {
-            break;
+        byte[] result = out.toByteArray();
+        if (result.length < len) {
+            LOGGER.warning("readBinaryComplete: leídos " + result.length
+                        + " de " + len + " bytes esperados");
         }
+        return result;
     }
-
-    return out.toByteArray();
-}
 
     /**
      * Lee un archivo binario en bloques incrementales hasta encontrar EOF.
@@ -516,7 +565,8 @@ public byte[] readBinaryComplete(int len) throws IOException {
             Iso7816FourCardException {
         int fileLength = 0;
         Location loc = location;
-        selectMasterFile();
+        selectFileById(new byte[] { (byte)0x3F, (byte)0x00 });
+        // selectMasterFile();
         while (loc != null) {
             final byte[] id = loc.getFile();
             fileLength = selectFileById(id);

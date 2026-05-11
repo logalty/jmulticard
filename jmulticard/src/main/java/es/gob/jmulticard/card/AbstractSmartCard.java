@@ -59,7 +59,7 @@ public abstract class AbstractSmartCard implements Card {
 
     /** Obtiene la conexi&oacute;n de la tarjeta.
      * @return Conexi&oacute;n de la tarjeta. */
-    protected ApduConnection getConnection() {
+    public ApduConnection getConnection() {
         return connection;
     }
 

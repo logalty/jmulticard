@@ -51,8 +51,11 @@ public final class SecureMessaging {
 	/** Tipo de mensajer&iacute;a segura. */
 	protected SecureMessagingType type;
 
-	/** Tama&ntilde;o de bloque de cifrado AES = 16 3DES = 8. */
-	private static int BLOCK_SIZE;
+		/** Tamaño de bloque de cifrado. AES = 16, 3DES = 8.
+	 * IMPORTANTE: Es de instancia, NO static, para evitar que una instancia
+	 * AES (post-CA) corrompa el BLOCK_SIZE de una instancia 3DES (BAC). */
+
+		private final int blockSize;
 
 	/** Constructor.
 	 * @param ksenc Clave de sesi&oacute;n para encriptar.
@@ -79,7 +82,7 @@ public final class SecureMessaging {
 		ssc = initialSSC.clone();
 		this.isBAC = isBAC;
 		this.type = type;
-		BLOCK_SIZE = isBAC ? 8 : 16;
+		this.blockSize = isBAC ? 8 : 16;
 	}
 
 	/** Transforma un Comando APDU en claro a Comando APDU protegido.
@@ -271,10 +274,10 @@ public final class SecureMessaging {
 			catch (final IOException e) {
 				throw new SecureMessagingException(e);
 			}
-			
+
 			// Eliminar padding ISO 7816-4 (0x80 seguido de 0x00s)
 			final byte[] unpaddedData = removePadding(data);
-			
+
 			// Construir la respuesta APDU desencriptada
 			unwrappedAPDUBytes = new byte[unpaddedData.length + 2];
 			System.arraycopy(unpaddedData, 0, unwrappedAPDUBytes, 0, unpaddedData.length);
@@ -454,28 +457,27 @@ public final class SecureMessaging {
 	 * a los datos proporcionados.
 	 * @param data Datos a rellenar.
 	 * @return Datos con el relleno aplicado. */
-	private static byte[] addPadding(final byte[] data) {
+	private byte[] addPadding(final byte[] data) {
 		int len = data.length;
-		final int nLen = (len / BLOCK_SIZE + 1) * BLOCK_SIZE;
+		final int nLen = (len / blockSize + 1) * blockSize;
 		final byte[] in = new byte[nLen];
 		System.arraycopy(data, 0, in, 0, data.length);
-
-        in [len]= (byte) 0x80;
-        len ++;
-        while (len < in.length) {
-            in[len] = (byte) 0;
-            len++;
-        }
-        return in;
+		in[len] = (byte) 0x80;
+		len++;
+		while (len < in.length) {
+			in[len] = (byte) 0;
+			len++;
+		}
+		return in;
 	}
 
-	private static byte[] applyPadding(final byte[] data) {
-		int paddingLength = BLOCK_SIZE - (data.length % BLOCK_SIZE);
+	private byte[] applyPadding(final byte[] data) {
+		int paddingLength = blockSize - (data.length % blockSize);
 		byte[] paddedData = new byte[data.length + paddingLength];
 		System.arraycopy(data, 0, paddedData, 0, data.length);
-		paddedData[data.length] = (byte) 0x80; // Primer byte del padding
+		paddedData[data.length] = (byte) 0x80;
 		for (int i = data.length + 1; i < paddedData.length; i++) {
-			paddedData[i] = (byte) 0x00; // Resto del padding
+			paddedData[i] = (byte) 0x00;
 		}
 		return paddedData;
 	}

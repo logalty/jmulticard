@@ -5,6 +5,7 @@ import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
+import es.gob.jmulticard.SignatureValidationPolicy;
 import es.gob.jmulticard.asn1.Asn1Exception;
 import es.gob.jmulticard.asn1.TlvException;
 import es.gob.jmulticard.asn1.icao.Com;
@@ -294,7 +295,7 @@ public interface MrtdLds1 {
      * @throws Asn1Exception Si el SOD es estructuralmente incorrecto.
      * @throws CertificateException Si los certificados de firma del SOD presentan problemas.
      * @throws SignatureException Si la firma del SOD es inv&aacute;lida o presenta problemas. */
-    X509Certificate[] checkSecurityObjects() throws IOException,
+    X509Certificate[] checkSecurityObjects(SignatureValidationPolicy policy) throws IOException,
                                                     InvalidSecurityObjectException,
                                                     TlvException,
                                                     Asn1Exception,

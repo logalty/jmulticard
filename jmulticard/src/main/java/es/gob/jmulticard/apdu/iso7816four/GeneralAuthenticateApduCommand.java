@@ -51,6 +51,8 @@ public final class GeneralAuthenticateApduCommand extends CommandApdu {
 	/** Valor para indicar que no se dispone de informaci&oacute;n al respecto. */
 	private static final byte NO_INFORMATION_GIVEN = (byte) 0x00;
 
+	private static final Integer LE = 0;
+
 	/** Crea un objeto para la auitenticaci&oacute;n interna.
 	 * @param cla Clase (CLA) de la APDU.
 	 * @param data Datos de autenticaci&oacute;n. */
@@ -61,7 +63,7 @@ public final class GeneralAuthenticateApduCommand extends CommandApdu {
 			NO_INFORMATION_GIVEN,	  // P1
 			NO_INFORMATION_GIVEN,     // P2
 			data,	                  // Data
-			null                      // Le
+			LE                      // Le
 		);
 	}
 }

@@ -175,7 +175,7 @@ public abstract class CryptoHelper {
 			if ("SHA512".equals(name) || "SHA-512".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
 				return SHA512;
 			}
-			
+
 			// Soportar OIDs en formato hexadecimal separado por guiones (encoding DER/BER)
 			// Estos son los valores reales que vienen del SOD
 			if (name != null && name.contains("-")) {
@@ -199,7 +199,7 @@ public abstract class CryptoHelper {
 				if ("2B-0E-03-02-1A".equalsIgnoreCase(name)) {
 					return SHA1;
 				}
-				
+
 				// También soportar formato decimal separado por puntos
 				final String oidDotFormat = name.replace("-", ".");
 				if ("2.16.840.1.101.3.4.2.1".equals(oidDotFormat)) {
@@ -215,7 +215,7 @@ public abstract class CryptoHelper {
 					return SHA1;
 				}
 			}
-			
+
 			throw new IllegalArgumentException(
 				"Algoritmo de huella no soportado: " + name //$NON-NLS-1$
 			);
@@ -414,7 +414,7 @@ public abstract class CryptoHelper {
 	 * @throws SignatureException Si la firma es inv&aacute;lida o est&aacute; mal formada.
 	 * @throws IOException Si los datos proporcionados no son una firma CMS/PKCS#7 bien formada.
 	 * @throws CertificateException Si hay problemas relacionados con los certificados de firma. */
-	public abstract X509Certificate[] validateCmsSignature(byte[] signedDataBytes) throws SignatureException,
+	public abstract X509Certificate[] validateCmsSignature(byte[] signedDataBytes, SignatureValidationPolicy policy) throws SignatureException,
 	                                                                                      IOException,
 	                                                                                      CertificateException;
 

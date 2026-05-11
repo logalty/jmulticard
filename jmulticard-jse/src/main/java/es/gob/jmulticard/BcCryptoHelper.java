@@ -79,6 +79,7 @@ import org.spongycastle.util.Selector;
 import org.spongycastle.util.Store;
 
 import es.gob.jmulticard.HexUtils;
+import es.gob.jmulticard.SignatureValidationPolicy;
 import es.gob.jmulticard.BcCryptoHelper.CustomRsaPublicKey;
 import es.gob.jmulticard.CryptoHelper.BlockMode;
 import es.gob.jmulticard.CryptoHelper.DigestAlgorithm;
@@ -636,9 +637,7 @@ public final class BcCryptoHelper extends CryptoHelper {
 	}
 
 	@Override
-	public X509Certificate[] validateCmsSignature(final byte[] signedDataBytes) throws SignatureException,
-	                                                                                   IOException,
-	                                                                                   CertificateException {
+	public X509Certificate[] validateCmsSignature(final byte[] signedDataBytes, SignatureValidationPolicy policy) throws SignatureException, IOException, CertificateException {
 		final CMSSignedData cmsSignedData;
 		try {
 			cmsSignedData = new CMSSignedData(signedDataBytes);
@@ -656,18 +655,22 @@ public final class BcCryptoHelper extends CryptoHelper {
             try {
 				cert = generateCertificate(certIt.next().getEncoded());
 			}
-            catch (final IOException e1) {
-            	throw new CertificateException(
+			catch (final IOException e1) {
+				throw new CertificateException(
 					"El SignedData contiene un certificado en formato incorrecto", e1//$NON-NLS-1$
 				);
 			}
-            try {
+      try {
 				cert.checkValidity();
 			}
-            catch (final CertificateExpiredException | CertificateNotYetValidException e1) {
-            	throw new CertificateException(
+			catch (final CertificateExpiredException | CertificateNotYetValidException e1) {
+							if (policy == SignatureValidationPolicy.ALLOW_EXPIRED_SIGNER_CERT) {
+            LOGGER.warning("SOD signer cert fuera de vigencia; se continúa por política ALLOW_EXPIRED_SIGNER_CERT");
+        } else {
+					throw new CertificateException(
 					"El SignedData contiene un certificado fuera de su periodo temporal de validez", e1 //$NON-NLS-1$
-				);
+					);
+				}
 			}
 			try {
 				if (

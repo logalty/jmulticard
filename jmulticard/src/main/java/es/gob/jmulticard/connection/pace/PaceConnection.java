@@ -20,7 +20,7 @@ import es.gob.jmulticard.de.tsenger.androsmex.iso7816.SecureMessagingType;
 /** Conexi&oacute;n PACE para establecimiento de canal seguro por NFC.
  * @author Sergio Mart&iacute;nez Rico
  * @author Tom&aacute;s Garc&iacute;a-Mer&aacute;s. */
-public final class PaceConnection extends Cwa14890OneV2Connection {
+public class PaceConnection extends Cwa14890OneV2Connection {
 
 	private static final StatusWord INVALID_CRYPTO_CHECKSUM = new StatusWord((byte)0x66, (byte)0x88);
 
@@ -91,45 +91,48 @@ public final class PaceConnection extends Cwa14890OneV2Connection {
 			);
 		}
 
-		final ResponseApdu responseApdu = subConnection.transmit(protectedApdu);
+		ResponseApdu responseApdu = subConnection.transmit(protectedApdu);
 
-		// Ignoramos los errores 62-82 (lectura fuera de limites) por ser comunes y estar tratados especificamente
-		if (!responseApdu.getStatusWord().isOk() && !new StatusWord((byte) 0x62, (byte) 0x82).equals(responseApdu.getStatusWord())) {
-			throw new ApduConnectionException(
-				"Error transmitiendo la APDU cifrada:\n" +            //$NON-NLS-1$
-					"Error: " + responseApdu.getStatusWord() + '\n' + //$NON-NLS-1$
-					"Respuesta:\n" + responseApdu + '\n' +            //$NON-NLS-1$
-					"Comando cifrado:\n" + (isChv ? "Verificacion de PIN" : protectedApdu) + '\n' + //$NON-NLS-1$ //$NON-NLS-2$
-					"Comando en claro:\n" + (isChv ? "Verificacion de PIN" : finalCommand) + '\n'   //$NON-NLS-1$ //$NON-NLS-2$
-			);
-		}
+		// Manejar GET RESPONSE (SW1=0x61): el chip indica que hay más datos disponibles
+    responseApdu = handleGetResponse(responseApdu);
 
-		final ResponseApdu decipherApdu;
-		try {
-			decipherApdu = sm.unwrap(responseApdu);
-		}
-		catch (final SecureMessagingException e1) {
-			throw new ApduConnectionException(
-				"No ha sido posible descifrar un mensaje seguro con el canal PACE", e1 //$NON-NLS-1$
-			);
-		}
+    // SIEMPRE intentar descifrar para mantener SSC sincronizado
+    final ResponseApdu decipherApdu;
+    try {
+        decipherApdu = sm.unwrap(responseApdu);  // ← SSC se incrementa siempre
+    } catch (final SecureMessagingException e1) {
+        // Si unwrap falla, la respuesta no es SM → comprobar SW externo
+        if (!responseApdu.getStatusWord().isOk()
+            && !new StatusWord((byte)0x62,(byte)0x82).equals(responseApdu.getStatusWord())) {
+            throw new ApduConnectionException(
+                "Error transmitiendo la APDU cifrada:\n" +
+                "Error: " + responseApdu.getStatusWord() + "\n" +
+                "Respuesta:\n" + responseApdu
+            );
+        }
+        throw new ApduConnectionException(
+            "No ha sido posible descifrar un mensaje seguro con el canal PACE", e1
+        );
+    }
 
-		if (AbstractSmartCard.DEBUG) {
-			Logger.getLogger("es.gob.jmulticard").info( //$NON-NLS-1$
-				"APDU de respuesta en claro: " + HexUtils.hexify(decipherApdu.getBytes(), true) //$NON-NLS-1$
-			);
-		}
+    if (INVALID_CRYPTO_CHECKSUM.equals(decipherApdu.getStatusWord())) {
+        throw new InvalidCryptographicChecksumException();
+    }
 
-		if (INVALID_CRYPTO_CHECKSUM.equals(decipherApdu.getStatusWord())) {
-			throw new InvalidCryptographicChecksumException();
-		}
+    // Comprobar el SW INTERNO (descifrado) en vez del externo
+    if (!decipherApdu.getStatusWord().isOk()
+        && !new StatusWord((byte)0x62,(byte)0x82).equals(decipherApdu.getStatusWord())) {
+        throw new ApduConnectionException(
+            "Error transmitiendo la APDU cifrada:\n" +
+            "Error: " + decipherApdu.getStatusWord()
+        );
+    }
 
-		// Si la APDU descifrada indicase que no se indico bien el tamano de la respuesta, volveriamos
-		// a enviar el comando indicando la longitud correcta
-		if (decipherApdu.getStatusWord().getMsb() == MSB_INCORRECT_LE) {
-			command.setLe(decipherApdu.getStatusWord().getLsb());
-			return transmit(command);
-		}
+    // Manejo de Le incorrecto
+    if (decipherApdu.getStatusWord().getMsb() == MSB_INCORRECT_LE) {
+        command.setLe(decipherApdu.getStatusWord().getLsb());
+        return transmit(command);
+    }
 		return decipherApdu;
 	}
 
@@ -142,6 +145,73 @@ public final class PaceConnection extends Cwa14890OneV2Connection {
 
 	public SecureMessagingType getType() {
 		return sm.getType();
+	}
+
+		/**
+	 * Maneja respuestas SW1=0x61 (más datos disponibles) enviando GET RESPONSE
+	 * repetidamente hasta obtener todos los datos. El GET RESPONSE se envía SIN
+	 * secure messaging ya que opera a nivel de transporte (ICAO 9303 / ISO 7816-4).
+	 *
+	 * @param initialResponse La respuesta inicial que puede contener SW 61xx
+	 * @return La respuesta completa con todos los datos acumulados
+	 */
+	private ResponseApdu handleGetResponse(ResponseApdu initialResponse) throws ApduConnectionException {
+			ResponseApdu currentResponse = initialResponse;
+			java.io.ByteArrayOutputStream accumulatedData = new java.io.ByteArrayOutputStream();
+
+			// Acumular datos de la respuesta inicial (si los hay)
+			if (currentResponse.getData() != null && currentResponse.getData().length > 0) {
+					try {
+							accumulatedData.write(currentResponse.getData());
+					} catch (java.io.IOException e) {
+							throw new ApduConnectionException("Error acumulando datos GET RESPONSE", e);
+					}
+			}
+
+			// Mientras el chip indique que hay más datos (SW1=0x61)
+			int maxIterations = 50; // Límite de seguridad
+			while (currentResponse.getStatusWord().getMsb() == (byte) 0x61 && maxIterations-- > 0) {
+					int remaining = currentResponse.getStatusWord().getLsb() & 0xFF;
+					if (remaining == 0) remaining = 256; // 0x00 = 256 bytes
+
+					Logger.getLogger("es.gob.jmulticard").info("GET RESPONSE: " + remaining + " bytes más disponibles");
+
+					// GET RESPONSE se envía SIN secure messaging (nivel transporte)
+					CommandApdu getResponseCmd = new CommandApdu(
+							(byte) 0x00, // CLA
+							(byte) 0xC0, // INS = GET RESPONSE
+							(byte) 0x00, // P1
+							(byte) 0x00, // P2
+							null,        // Sin datos
+							remaining    // Le = bytes esperados
+					);
+
+					currentResponse = subConnection.transmit(getResponseCmd);
+
+					if (currentResponse.getData() != null && currentResponse.getData().length > 0) {
+							try {
+									accumulatedData.write(currentResponse.getData());
+							} catch (java.io.IOException e) {
+									throw new ApduConnectionException("Error acumulando datos GET RESPONSE", e);
+							}
+					}
+			}
+
+			// Si no hubo GET RESPONSE, devolver la respuesta original
+			if (accumulatedData.size() == 0 ||
+					initialResponse.getStatusWord().getMsb() != (byte) 0x61) {
+					return initialResponse;
+			}
+
+			// Reconstruir ResponseApdu con todos los datos acumulados + SW final
+			byte[] allData = accumulatedData.toByteArray();
+			byte[] fullResponse = new byte[allData.length + 2];
+			System.arraycopy(allData, 0, fullResponse, 0, allData.length);
+			fullResponse[allData.length] = currentResponse.getStatusWord().getMsb();
+			fullResponse[allData.length + 1] = currentResponse.getStatusWord().getLsb();
+
+			Logger.getLogger("es.gob.jmulticard").info("GET RESPONSE completado: " + allData.length + " bytes totales");
+			return new ResponseApdu(fullResponse);
 	}
 
 }

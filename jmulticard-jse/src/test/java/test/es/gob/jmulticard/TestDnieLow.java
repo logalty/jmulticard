@@ -23,6 +23,7 @@ import org.junit.Test;
 import es.gob.jmulticard.BcCryptoHelper;
 import es.gob.jmulticard.CryptoHelper;
 import es.gob.jmulticard.HexUtils;
+import es.gob.jmulticard.SignatureValidationPolicy;
 import es.gob.jmulticard.asn1.der.pkcs15.Cdf;
 import es.gob.jmulticard.asn1.icao.Com;
 import es.gob.jmulticard.asn1.icao.OptionalDetails;
@@ -114,7 +115,7 @@ public final class TestDnieLow {
 		final Sod sod = dnie.getSod();
 		System.out.println(sod);
 		System.out.println();
-		final X509Certificate[] certChain = dnie.checkSecurityObjects();
+		final X509Certificate[] certChain = dnie.checkSecurityObjects(SignatureValidationPolicy.STRICT);
 		System.out.println(certChain[0].getSubjectX500Principal());
 	}
 
