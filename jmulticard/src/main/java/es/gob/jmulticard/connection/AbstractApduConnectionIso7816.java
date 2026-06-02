@@ -26,6 +26,18 @@ public abstract class AbstractApduConnectionIso7816 implements ApduConnection {
 	 *         puede enviar sin necesidad de hacer una envoltura. */
 	public abstract int getMaxApduSize();
 
+	/** Tama&ntilde;o de chunk preferido para READ BINARY (en bytes de texto claro por APDU).
+	 * <p>El valor por defecto (220) es seguro para el canal BAC (3DES-CBC SM) dentro de
+	 * una APDU est&aacute;ndar ISO 7816-4 de 256 bytes: el overhead SM ocupa ~35&nbsp;bytes
+	 * (DO87 header + padding + DO99 + DO8E), dejando 220 bytes de payload &uacute;til.</p>
+	 * <p>Las subclases que tengan acceso a informaci&oacute;n del transporte (p.ej.
+	 * {@code IsoDep.getMaxTransceiveLength()}) pueden sobreescribir este m&eacute;todo
+	 * para devolver un valor mayor cuando el chip y el transporte lo soporten.</p>
+	 * @return N&uacute;mero m&aacute;ximo de bytes de texto claro por comando READ BINARY. */
+	public int getPreferredReadChunkSize() {
+		return 220;
+	}
+
 	/** Transmite una APDU.
 	 * @param apdu Comando APDU a transmitir.
 	 * @return APDU de respuesta.

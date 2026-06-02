@@ -26,7 +26,28 @@ public final class AndroidNfcConnection extends AbstractApduConnectionIso7816 {
     /** Version code de Android P. */
     private static final int ANDROID_P = 28;
 
+    /**
+     * Overhead m&aacute;ximo de Secure Messaging BAC (3DES-CBC) en la respuesta:
+     * DO87 header (3B) + padding block (8B) + DO99 (4B) + DO8E (10B) = 25B.
+     * Se usa un margen conservador de 35B para absorber variaciones de longitud.
+     */
+    private static final int SM_RESPONSE_OVERHEAD = 35;
+
+    /**
+     * L&iacute;mite seguro absoluto de bytes de payload por APDU en modo est&aacute;ndar
+     * (Le=0x00 = 256 bytes de respuesta m&aacute;xima, menos el overhead SM).
+     */
+    private static final int MAX_CHUNK_STANDARD_APDU = 220;
+
+    /** M&aacute;ximo de bytes de payload cuando el transporte soporta APDUs extendidas.
+     * El chip ICAO devuelve como mucho ~699 bytes por APDU con extended Le,
+     * independientemente del Le solicitado. Usamos 1800 como techo seguro. */
+    private static final int MAX_CHUNK_EXTENDED_APDU = 1800;
+
     private final IsoDep mIsoDep;
+
+    /** Tama&ntilde;o de transceive m&aacute;ximo reportado por el controlador NFC del dispositivo. */
+    private int mMaxTransceiveLength = 261; // ISO 7816 standard minimum
 
     /** Constructor de la clase para la gesti&oacute;n de la conexi&oacute;n por NFC.
      * @param tag <code>Tag</code> para obtener el objeto <code>IsoDep</code> y establecer la
@@ -39,6 +60,12 @@ public final class AndroidNfcConnection extends AbstractApduConnectionIso7816 {
         this.mIsoDep = IsoDep.get(tag);
         this.mIsoDep.connect();
         this.mIsoDep.setTimeout(ISODEP_TIMEOUT);
+
+        // Capturamos la capacidad real de transceive del controlador NFC del dispositivo.
+        // Este valor se usa para calibrar el chunk size de READ BINARY y reducir round trips.
+        this.mMaxTransceiveLength = this.mIsoDep.getMaxTransceiveLength();
+        Log.d(TAG, "IsoDep maxTransceiveLength=" + this.mMaxTransceiveLength
+                + (this.mMaxTransceiveLength > 261 ? " (extended APDU capable)" : " (standard only)"));
 
         // Retenemos la conexion hasta nuestro siguiente envio
         // Solo en la versiones de Android afectadas por el error https://issuetracker.google.com/issues/36977343
@@ -194,5 +221,42 @@ public final class AndroidNfcConnection extends AbstractApduConnectionIso7816 {
     @Override
     public int getMaxApduSize() {
         return 0xff;
+    }
+
+    /**
+     * Devuelve el tama&ntilde;o de chunk preferido para READ BINARY en bytes de texto claro.
+     *
+     * <p><b>Modo est&aacute;ndar (maxTransceiveLength &le; 261)</b>: se usa {@code MAX_CHUNK_STANDARD_APDU}
+     * (220 bytes). El canal SM ({@code SecureMessaging.wrap}) siempre pone {@code Le=0x00}
+     * en la APDU protegida, lo que limita la respuesta a 256 bytes; el overhead SM (~35B)
+     * deja 220 bytes de payload &uacute;til por APDU.</p>
+     *
+     * <p><b>Modo extendido (maxTransceiveLength &gt; 261)</b>: aunque el transporte NFC puede
+     * manejar APDUs m&aacute;s grandes, el canal SM necesita usar Le extendida en la APDU protegida
+     * (pendiente de implementar en {@code SecureMessaging.wrap}). Por ahora se devuelve el
+     * mismo valor seguro para evitar errores de protocolo.</p>
+     *
+     * @return N&uacute;mero de bytes de texto claro por READ BINARY.
+     */
+    @Override
+    public int getPreferredReadChunkSize() {
+        // El comando SM READ BINARY (sin cuerpo de datos) ocupa ~24 bytes:
+        //   [CLA INS P1 P2] + [00 Lc_hi Lc_lo] + [DO97(4B)] + [DO8E(10B)] + [00 Le_hi Le_lo]
+        // Siempre cabe en 261 bytes, independientemente del Le que pidamos.
+        //
+        // mMaxTransceiveLength limita el COMANDO enviado, no la RESPUESTA recibida.
+        // Android IsoDep ensambla automaticamente respuestas multi-frame ISO 14443-4,
+        // por lo que podemos recibir 700-1800 bytes en un unico transceive().
+        //
+        // Usamos extended Le siempre. El back-off de readBinaryComplete() reducira
+        // el chunk si el chip devuelve 6700 (Le incorrecto) o error de transporte.
+        Log.d(TAG, "getPreferredReadChunkSize: maxTransceive=" + mMaxTransceiveLength
+                + " -> usando chunk extendido=" + MAX_CHUNK_EXTENDED_APDU);
+        return MAX_CHUNK_EXTENDED_APDU;
+    }
+
+    /** @return Longitud m&aacute;xima de transceive reportada por el controlador NFC. */
+    public int getMaxTransceiveLength() {
+        return mMaxTransceiveLength;
     }
 }

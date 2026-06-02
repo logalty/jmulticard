@@ -161,13 +161,32 @@ public class CommandApdu extends Apdu {
 			if (ne.intValue() <= 0xff) {
 				baos.write(ne.byteValue());
 			}
+			else if (data == null) {
+				// Caso 2e: CLA INS P1 P2 | 0x00 Le_hi Le_lo  (extended Le sin datos)
+				baos.write((byte) 0x00);
+				baos.write((byte) (ne.intValue() >> 8));
+				baos.write((byte) (ne.intValue() & 0xff));
+			}
 			else {
+				// Caso 4e: Lc ya en formato extendido, Le en 2 bytes
 				baos.write((byte) (ne.intValue() >> 8));
 				baos.write((byte) (ne.intValue() & 0xff));
 			}
 		}
 
 		setBytes(baos.toByteArray());
+	}
+
+	/** Crea una CommandApdu a partir de bytes ya correctamente formateados,
+	 * sin reprocesado. Uso interno para APDUs extendidas preformateadas.
+	 * @param rawBytes Bytes de la APDU ya ensamblados.
+	 * @return CommandApdu que emite exactamente los bytes proporcionados. */
+	public static CommandApdu fromRawBytes(final byte[] rawBytes) {
+		final CommandApdu apdu = new CommandApdu(
+			rawBytes[0], rawBytes[1], rawBytes[2], rawBytes[3], null, null
+		);
+		apdu.setBytes(rawBytes);
+		return apdu;
 	}
 
 	/** Devuelve la clase (CLA) de APDU.

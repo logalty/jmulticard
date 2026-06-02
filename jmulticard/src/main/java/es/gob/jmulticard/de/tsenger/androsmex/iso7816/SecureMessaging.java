@@ -91,7 +91,6 @@ public final class SecureMessaging {
 	 * @throws SecureMessagingException En cualquier error. */
 	public CommandApdu wrap(final CommandApdu capdu) throws SecureMessagingException {
 
-		byte lc = 0;
 		DO97 do97 = null;
 		DO87 do87 = null;
 
@@ -106,44 +105,61 @@ public final class SecureMessaging {
 		// Marca la mensajeria segura con el CLA-Byte
 		header[0] = (byte) (header[0] | (byte) 0x0C);
 
-		// Construye el DO87 (parametros de comando)
-		if (getAPDUStructure(capdu) == 3 || getAPDUStructure(capdu) == 4) {
+		// Construye el DO87 (parametros de comando cifrados, si hay datos)
+		final byte structure = getAPDUStructure(capdu);
+		if (structure == 3 || structure == 4 || structure == 6 || structure == 7) {
 			do87 = buildDO87(capdu.getData().clone());
-			lc += do87.getEncoded().length;
 		}
 
-		int originalLe = capdu.getLe() != null ? capdu.getLe().intValue() : -1;
-		if (originalLe > 0 && originalLe <= 256) {
-			// Construye el DO97 (payload de respuesta esperado)
-			if (getAPDUStructure(capdu) == 2 || getAPDUStructure(capdu) == 4) {
-				do97 = buildDO97(capdu.getLe().intValue());
-				lc += do97.getEncoded().length;
+		// Construye el DO97 (Le esperada, si la hay)
+		final int originalLe = capdu.getLe() != null ? capdu.getLe().intValue() : -1;
+		if (originalLe > 0) {
+			if (structure == 2 || structure == 4 || structure == 5 || structure == 7) {
+				do97 = buildDO97(originalLe);
 			}
 		}
 
 		// Construye el DO8E (checksum (MAC))
 		final DO8E do8E = buildDO8E(header, do87, do97);
-		lc += do8E.getEncoded().length;
+
+		// Ensambla los DOs en un stream auxiliar para calcular Lc
+		final ByteArrayOutputStream doStream = new ByteArrayOutputStream();
+		try {
+			if (do87 != null) doStream.write(do87.getEncoded());
+			if (do97 != null) doStream.write(do97.getEncoded());
+			doStream.write(do8E.getEncoded());
+		} catch (final IOException e) {
+			throw new SecureMessagingException(e);
+		}
+		final byte[] doBytes = doStream.toByteArray();
+		final int lcValue = doBytes.length;
 
 		// Construye y devuelve la APDU protegida
 		final ByteArrayOutputStream bOut = new ByteArrayOutputStream();
 		try {
 			bOut.write(header);
-			bOut.write(lc);
-			if (do87 != null) {
-				bOut.write(do87.getEncoded());
+
+			if (originalLe > 256) {
+				// APDU extendida: Lc en 3 bytes (0x00 Lc_hi Lc_lo), Le = 0x000000 (max)
+				bOut.write(0x00);
+				bOut.write((byte)(lcValue >> 8));
+				bOut.write((byte)(lcValue & 0xFF));
+				bOut.write(doBytes);
+				bOut.write(0x00); // Marcador Le extendida
+				bOut.write(0x00); // Le_hi = 0 (max 65536)
+				bOut.write(0x00); // Le_lo = 0
+				return CommandApdu.fromRawBytes(bOut.toByteArray());
+			} else {
+				// APDU estandar: Lc en 1 byte, Le = 0x00 (max 256)
+				bOut.write((byte) lcValue);
+				bOut.write(doBytes);
+				bOut.write(0x00);
+				return new CommandApdu(bOut.toByteArray());
 			}
-			if (do97 != null) {
-				bOut.write(do97.getEncoded());
-			}
-			bOut.write(do8E.getEncoded());
-			bOut.write(0);
 		}
 		catch (final IOException e) {
 			throw new SecureMessagingException(e);
 		}
-
-		return new CommandApdu(bOut.toByteArray());
 	}
 
 	/** Obtiene la APDU de respuesta en claro a partir de una APDU protegida.

@@ -65,8 +65,10 @@ import es.gob.jmulticard.card.CryptoCardException;
 import es.gob.jmulticard.card.Location;
 import es.gob.jmulticard.card.PinException;
 import es.gob.jmulticard.card.icao.TlvHeaderInfo;
+import es.gob.jmulticard.connection.AbstractApduConnectionIso7816;
 import es.gob.jmulticard.connection.ApduConnection;
 import es.gob.jmulticard.connection.ApduConnectionException;
+import es.gob.jmulticard.connection.cwa14890.Cwa14890Connection;
 import es.gob.jmulticard.connection.cwa14890.SecureChannelException;
 
 /** Tarjeta compatible ISO-7816-4.
@@ -92,11 +94,48 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
     /** <code>Logger</code> por defecto. */
     private static final Logger LOGGER = Logger.getLogger("es.gob.jmulticard"); //$NON-NLS-1$
 
+    /**
+     * Tama&ntilde;o de chunk por defecto para READ BINARY (bytes de texto claro por APDU).
+     * Seguro para BAC 3DES-SM en APDU est&aacute;ndar: 256B respuesta - ~35B overhead SM = 220B &uacute;tiles.
+     */
+    private static final int DEFAULT_READ_CHUNK_SIZE = 220;
+
     /** Construye una tarjeta compatible ISO 7816-4.
      * @param c Octeto de clase (CLA) de las APDU.
      * @param conn Connexi&oacute;n con la tarjeta. */
     public AbstractIso7816FourCard(final byte c, final ApduConnection conn) {
         super(c, conn);
+    }
+
+    /**
+     * Obtiene el tama&ntilde;o de chunk inicial preferido para READ BINARY consultando
+     * la conexi&oacute;n de transporte subyacente.
+     *
+     * <p>Recorre la cadena de conexiones (canal SM &rarr; transporte raw) para llegar
+     * a {@link AbstractApduConnectionIso7816} y delegar en su
+     * {@link AbstractApduConnectionIso7816#getPreferredReadChunkSize()}. Esto permite
+     * que cada sabor de hardware (Android IsoDep, Sunmi, PAX) aporte su valor &oacute;ptimo
+     * sin que esta clase conozca los detalles del transporte.</p>
+     *
+     * @return N&uacute;mero de bytes de texto claro para el primer READ BINARY de la sesi&oacute;n.
+     */
+    protected int getPreferredInitialReadChunkSize() {
+        ApduConnection conn = getConnection();
+        int maxWalk = 8; // Tope de seguridad ante cadenas circulares
+        while (conn instanceof Cwa14890Connection && maxWalk-- > 0) {
+            final ApduConnection sub = ((Cwa14890Connection) conn).getSubConnection();
+            if (sub == null) break;
+            conn = sub;
+        }
+        if (conn instanceof AbstractApduConnectionIso7816) {
+            final int chunk = ((AbstractApduConnectionIso7816) conn).getPreferredReadChunkSize();
+            LOGGER.info("getPreferredInitialReadChunkSize: transport=" + conn.getClass().getSimpleName()
+                    + " chunk=" + chunk);
+            return chunk;
+        }
+        LOGGER.warning("getPreferredInitialReadChunkSize: no AbstractApduConnectionIso7816 found (conn="
+                + (conn != null ? conn.getClass().getSimpleName() : "null") + "), default=" + DEFAULT_READ_CHUNK_SIZE);
+        return DEFAULT_READ_CHUNK_SIZE;
     }
 
     /**
@@ -150,7 +189,7 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
      *                                  para la lectura caen fuera de los l&iacute;mites del fichero. */
     private ResponseApdu readBinary(final byte msbOffset,
     		                        final byte lsbOffset,
-    		                        final byte readLength) throws ApduConnectionException,
+    		                        final int readLength) throws ApduConnectionException,
                                                                   RequiredSecurityStateNotSatisfiedException,
                                                                   OffsetOutsideEfException {
     	final CommandApdu apdu = new ReadBinaryApduCommand(
@@ -227,51 +266,56 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
 
         ResponseApdu readedResponse;
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int readChunkSize = 96; // Tamaño inicial de chunk. Se reduce dinámicamente si el chip responde 6282 sin datos.
+        // Chunk inicial: valor preferido de la conexion de transporte subyacente.
+        // AndroidNfcConnection devuelve 220B (techo seguro para 3DES-SM en APDU estandar).
+        // SunmiNfcConnection y PaxNfcConnection devuelven 164B (conservador para SDKs OEM).
+        // La logica de back-off reduce el chunk si el chip responde con error.
+        int readChunkSize = getPreferredInitialReadChunkSize();
+        int apduCount = 0;
+        LOGGER.info("READ_BINARY_START fileLen=" + len + " initialChunk=" + readChunkSize);
 
         while (off < len) {
+            // ICAO 9303 Part 11 §9.9.1: READ BINARY with P1 bit7=0 limits offset to 15 bits (max 0x7FFF = 32767).
+            // When off > 0x7FFF, P1 bit7 would be set, which the chip interprets as SFI addressing.
+            // TODO: implement READ BINARY with offset data object (INS=0xB1) for files > 32 KB per ICAO 9303 §9.9.
+            if (off > 0x7FFF) {
+                LOGGER.severe("READ_BINARY offset=" + off + " excede el limite de 15 bits (0x7FFF=32767). "
+                        + "Los datos por encima de 32 KB no pueden leerse con READ BINARY estandar. "
+                        + "Devolviendo datos parciales.");
+                break;
+            }
             final byte msbOffset = (byte)(off >> 8);
             final byte lsbOffset = (byte)(off & 0xFF);
             final int left = len - off;
             final int requestedBytes = Math.min(left, readChunkSize);
 
             try {
-                readedResponse = readBinary(msbOffset, lsbOffset, (byte) requestedBytes);
+                apduCount++;
+                readedResponse = readBinary(msbOffset, lsbOffset, requestedBytes);
             } catch (final OffsetOutsideEfException e) {
-                LOGGER.warning("Lectura fuera de límites en offset=" + off + ", devolviendo lo leído");
-                return out.toByteArray();
+                LOGGER.warning("Lectura fuera de limites en offset=" + off + ", devolviendo lo leido");
+                break;
             } catch (final RequiredSecurityStateNotSatisfiedException e) {
-                throw new IOException("Condición de seguridad no satisfecha", e);
+                throw new IOException("Condicion de seguridad no satisfecha", e);
             } catch (final ApduConnectionException e) {
-                // Puede ocurrir si:
-                // 1) El chip responde sin SM wrapping (ej: 6282 directo sin DO87/DO99/DO8E)
-                //    → sm.unwrap() falla con SecureMessagingException
-                // 2) Error real de transporte (TagLost, timeout)
-                //
-                // En caso 1: reducir chunk puede funcionar si el chip tolera Le menor.
-                // En caso 2: si el SSC se desincronizó (SM activo), la sesión está perdida.
-                //
-                // Distinguimos: si el error contiene "SecureMessaging" o "checksum",
-                // no tiene sentido reducir chunk — la sesión SM está rota.
                 final String errMsg = e.getMessage() != null ? e.getMessage() : "";
                 final boolean smCorrupted = errMsg.contains("SecureMessaging")
                         || errMsg.contains("checksum")
                         || errMsg.contains("cifrar")
                         || errMsg.contains("descifrar");
-
                 if (smCorrupted) {
                     LOGGER.severe("Error de Secure Messaging en offset=" + off
                             + ". SSC posiblemente desincronizado. Devolviendo datos parciales.");
                     break;
                 }
-
                 if (readChunkSize > 32 && off < len) {
                     readChunkSize = readChunkSize / 2;
-                    LOGGER.warning("Error de conexión en offset=" + off
+                    LOGGER.warning("Error de conexion en offset=" + off
                             + " (" + errMsg + "), reduciendo chunk a " + readChunkSize);
                     continue;
                 }
-                LOGGER.warning("Error de conexión irrecuperable en offset=" + off + ", devolviendo lo leído: " + errMsg);
+                LOGGER.warning("Error de conexion irrecuperable en offset=" + off
+                        + ", devolviendo lo leido: " + errMsg);
                 break;
             }
 
@@ -283,49 +327,39 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
 
             final byte[] data = readedResponse.getData();
 
-            // PRIMERO escribir los datos recibidos (si los hay), LUEGO comprobar EOF.
-            // SW 6282 = "end of file reached before Le bytes available" pero la respuesta
-            // SÍ contiene los datos que el chip pudo leer (los bytes restantes del fichero).
-            // No descartar datos válidos.
             if (data != null && data.length > 0) {
-                int bytesToWrite = Math.min(data.length, len - off);
+                final int bytesToWrite = Math.min(data.length, len - off);
                 out.write(data, 0, bytesToWrite);
                 off += bytesToWrite;
             }
 
-            // Si recibimos EOF sin datos y aún no hemos leído todo, intentar
-            // con un chunk más pequeño (el chip puede rechazar Le > bytes restantes
-            // en algunos modelos, especialmente con Secure Messaging activo).
             if (eofReached && (data == null || data.length == 0) && off < len) {
                 if (readChunkSize > 32) {
                     readChunkSize = readChunkSize / 2;
                     LOGGER.info("EOF sin datos en offset=" + off + ", reduciendo chunk a " + readChunkSize + " bytes");
-                    continue; // Reintentar con chunk más pequeño
+                    continue;
                 }
-                LOGGER.warning("EOF sin datos en offset=" + off + " con chunk mínimo, deteniendo lectura");
+                LOGGER.warning("EOF sin datos en offset=" + off + " con chunk minimo, deteniendo lectura");
                 break;
             }
 
-            // EOF con datos: ya escribimos los datos, fin del fichero
             if (eofReached) {
                 break;
             }
 
-            // Respuesta vacía sin EOF: fin inesperado
             if (data == null || data.length == 0) {
                 break;
             }
-
-            // ELIMINADO: if (data.length < requestedBytes) break;
-            // Con Secure Messaging (PACE/BAC), el descifrado AES-CBC puede devolver
-            // bloques de tamaño diferente al solicitado. La única condición de EOF
-            // fiable es: off >= len, SW=6282 (EOF), o data vacía.
         }
 
-        byte[] result = out.toByteArray();
+        final byte[] result = out.toByteArray();
+        LOGGER.info("READ_BINARY_DONE apduCalls=" + apduCount
+                + " bytesRead=" + result.length
+                + " fileLen=" + len
+                + " finalChunk=" + readChunkSize);
         if (result.length < len) {
-            LOGGER.warning("readBinaryComplete: leídos " + result.length
-                        + " de " + len + " bytes esperados");
+            LOGGER.warning("readBinaryComplete: leidos " + result.length
+                    + " de " + len + " bytes esperados");
         }
         return result;
     }

@@ -30,7 +30,12 @@ final class DO97 {
     private transient final Tlv tlv;
 
 	DO97(final int le) {
-		this.tlv = new Tlv(TAG, new byte[] { (byte) le });
+		if (le > 0xFF) {
+			// Le extendida: 2 bytes en el valor del TLV
+			this.tlv = new Tlv(TAG, new byte[] { (byte)(le >> 8), (byte)(le & 0xFF) });
+		} else {
+			this.tlv = new Tlv(TAG, new byte[] { (byte) le });
+		}
 	}
 
 	byte[] getEncoded() {
