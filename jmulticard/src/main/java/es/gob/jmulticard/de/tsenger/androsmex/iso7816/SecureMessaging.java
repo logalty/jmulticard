@@ -291,8 +291,10 @@ public final class SecureMessaging {
 				throw new SecureMessagingException(e);
 			}
 
-			// Eliminar padding ISO 7816-4 (0x80 seguido de 0x00s)
-			final byte[] unpaddedData = removePadding(data);
+			// Para BAC (3DES), el descifrado devuelve datos con padding ISO 7816-4 que hay
+			// que eliminar manualmente. Para PACE (AES), ISO7816_4PADDING ya lo eliminó
+			// en aesDecrypt; llamar removePadding de nuevo podría cortar datos legítimos.
+			final byte[] unpaddedData = isBAC ? removePadding(data) : data;
 
 			// Construir la respuesta APDU desencriptada
 			unwrappedAPDUBytes = new byte[unpaddedData.length + 2];

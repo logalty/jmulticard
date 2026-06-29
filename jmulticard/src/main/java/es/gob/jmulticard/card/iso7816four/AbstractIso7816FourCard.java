@@ -211,6 +211,7 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
         	LOGGER.warning("Se ha alcanzado el final de fichero antes de poder leer los octetos indicados"); //$NON-NLS-1$
         	return res;
         }
+        LOGGER.warning("Respuesta invalida en la lectura de binario con el codigo: " + res.getStatusWord()); //$NON-NLS-1$
         throw new ApduConnectionException("Respuesta invalida en la lectura de binario con el codigo: " + res.getStatusWord()); //$NON-NLS-1$
     }
 
@@ -298,6 +299,7 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
             } catch (final RequiredSecurityStateNotSatisfiedException e) {
                 throw new IOException("Condicion de seguridad no satisfecha", e);
             } catch (final ApduConnectionException e) {
+                LOGGER.warning("Error de conexion en offset=" + off + ": " + e.getMessage());
                 final String errMsg = e.getMessage() != null ? e.getMessage() : "";
                 final boolean smCorrupted = errMsg.contains("SecureMessaging")
                         || errMsg.contains("checksum")
@@ -308,8 +310,8 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
                             + ". SSC posiblemente desincronizado. Devolviendo datos parciales.");
                     break;
                 }
-                if (readChunkSize > 32 && off < len) {
-                    readChunkSize = readChunkSize / 2;
+                if (readChunkSize > 96 && off < len) {
+                    readChunkSize = readChunkSize / 4;
                     LOGGER.warning("Error de conexion en offset=" + off
                             + " (" + errMsg + "), reduciendo chunk a " + readChunkSize);
                     continue;
@@ -319,6 +321,11 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
                 break;
             }
 
+            LOGGER.finest("READ_BINARY apduCalls=" + apduCount
+                    + " offset=" + off
+                    + " requested=" + requestedBytes
+                    + " readed=" + (readedResponse.getData() != null ? readedResponse.getData().length : 0)
+                    + " status=" + readedResponse.getStatusWord());
             final boolean eofReached = SW_EOF_REACHED.equals(readedResponse.getStatusWord());
 
             if (!readedResponse.isOk() && !eofReached) {
@@ -334,9 +341,9 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
             }
 
             if (eofReached && (data == null || data.length == 0) && off < len) {
-                if (readChunkSize > 32) {
-                    readChunkSize = readChunkSize / 2;
-                    LOGGER.info("EOF sin datos en offset=" + off + ", reduciendo chunk a " + readChunkSize + " bytes");
+                if (readChunkSize > 96) {
+                    readChunkSize = readChunkSize / 4;
+                    LOGGER.finest("EOF sin datos en offset=" + off + ", reduciendo chunk a " + readChunkSize + " bytes");
                     continue;
                 }
                 LOGGER.warning("EOF sin datos en offset=" + off + " con chunk minimo, deteniendo lectura");
@@ -360,6 +367,7 @@ public abstract class AbstractIso7816FourCard extends AbstractSmartCard {
         if (result.length < len) {
             LOGGER.warning("readBinaryComplete: leidos " + result.length
                     + " de " + len + " bytes esperados");
+            throw new IOException("No se pudo leer el fichero completo, leidos " + result.length + " de " + len + " bytes esperados");
         }
         return result;
     }
