@@ -104,7 +104,13 @@ public final class SecureMessaging {
 		header[0] = (byte) (header[0] | (byte) 0x0C);
 
 		// Construye el DO87 (parametros de comando cifrados, si hay datos)
-		final byte structure = getAPDUStructure(capdu);
+		byte structure = getAPDUStructure(capdu);
+		// BAC: CommandApdu codifica Le=256 como 2 octetos tras un Lc corto (APDU no valida), por lo que
+		// no se reconoce la estructura y se perderian los datos (DO87) y la Le (DO97), p.ej. el
+		// challenge del INTERNAL AUTHENTICATE. Se deduce la estructura de los campos del comando.
+		if (isBAC && structure == 0 && capdu.getLe() != null && capdu.getLe().intValue() == 256) {
+			structure = capdu.getData() != null && capdu.getData().length > 0 ? (byte) 4 : (byte) 2;
+		}
 		if (structure == 3 || structure == 4 || structure == 6 || structure == 7) {
 			do87 = buildDO87(capdu.getData().clone());
 		}
@@ -389,7 +395,13 @@ public final class SecureMessaging {
 		}
 	}
 
-	private static DO97 buildDO97(final int le) {
+	private DO97 buildDO97(final int le) {
+		// BAC usa APDUs cortas: Le=256 se codifica en un unico octeto 0x00 (ICAO 9303-11).
+		// Con DO97(256) se generaria 97 02 01 00 (formato de Le extendida) dentro de una APDU corta,
+		// que los chips estrictos rechazan. PACE mantiene el comportamiento anterior.
+		if (isBAC && le == 256) {
+			return new DO97(0x00);
+		}
 		return new DO97(le);
 	}
 
