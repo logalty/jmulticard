@@ -20,10 +20,8 @@ package es.gob.jmulticard.de.tsenger.androsmex.iso7816;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.math.BigInteger;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.logging.Logger;
 
 import es.gob.jmulticard.CryptoHelper;
@@ -427,16 +425,16 @@ public final class SecureMessaging {
 		return 0;
 	}
 
+	/** Incrementa en uno el contador (big-endian, sin signo) con acarreo.
+	 * Si se desborda (todo 0xFF) vuelve a cero.
+	 * No se usa <code>BigInteger.toByteArray()</code> porque a&ntilde;ade un byte de
+	 * signo cuando el primer byte es &gt;= 0x80, lo que se interpretaba como desbordamiento
+	 * y reiniciaba el SSC a cero (rompiendo BAC con SSC iniciales aleatorios).
+	 * @param array Contador a incrementar. */
 	private static void incrementAtIndex(final byte[] array) {
-		final byte[] result = new BigInteger(1, array).add(BigInteger.ONE).toByteArray();
-		if (result.length > array.length) {
-			Arrays.fill(array, (byte)0);
-		}
-		else {
-			final int lengthA = array.length;
-			final int lengthR = result.length;
-			for (int i = 0; i < lengthR; i++) {
-				array[lengthA - 1 - i] = result[lengthR - 1 - i];
+		for (int i = array.length - 1; i >= 0; i--) {
+			if (++array[i] != 0) {
+				return;
 			}
 		}
 	}
